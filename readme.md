@@ -26,6 +26,49 @@
 <a href="">Character Error Rate (CER %) on KHOB, Legal Documents, and Printed Word Benchmark. <i>Lower is better.</i></a>       
 </p>
 
+## Quick start: Netra OCR app (Docker)
+
+One command gives you a web app **and** a REST API, with every model baked in. It runs offline and nothing leaves your machine.
+
+```bash
+docker run -p 8000:8000 -v netra-data:/data ghcr.io/netra-ai-lab/netra-ocr
+# open http://localhost:8000
+```
+
+The image is CPU-only: a ~660 MB download, ~1.7 GB on disk. The recognizer has 17M parameters and the detectors are small YOLO models, so a CPU reads a page in seconds (1.4–3.2 s per page on an i7-13700K, longer on a laptop), and leaving out CUDA saves several gigabytes. It runs on Intel/AMD (x86-64) and ARM64 machines, including Apple Silicon Macs, with no GPU driver needed. Give Docker at least 4 GB of memory (a 10-page PDF peaks at about 1.7 GB).
+
+The `-p 8000:8000` part publishes the port. **Docker Desktop:** when you start the image from the Images tab, open *Optional settings* and set *Host port* to `8000`, or the page won't open.
+
+To build it yourself, run `docker compose up --build`. The build ends with a smoke test: it runs every detector, both decoders, PDF input and every export format against the slimmed environment, so a broken image fails to build rather than failing on your first upload.
+
+What it does:
+- **Input:** a scan, a phone photo, or a multi-page **PDF** (JPG/PNG/TIFF/BMP/WebP/PDF, up to 50 MB / 100 pages by default).
+- **Layout analysis:** [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO) finds headings, paragraphs, tables, figures, captions and page headers/footers, and the reading order. Netra's YOLO line detector and recognizer then read the Khmer and English text.
+- **Editable result:** the output is a structured document, not a text dump. You fix misreads in the browser, with each block linked to its region on the page image. You can change a block's type (heading/paragraph/caption…), alignment and order, split or merge blocks, and edit table cells. Edits autosave, and undo is supported.
+- **Export:** a **structured Word document** (real Heading styles, native tables, figures, captions, per-page headers/footers, Khmer set as a complex script in Kantumruy Pro), plus HTML, Markdown, JSON (blocks + bounding boxes) and plain text.
+
+REST API (interactive docs at `http://localhost:8000/docs`):
+
+```bash
+curl -F file=@scan.jpg http://localhost:8000/v1/ocr                 # image: returns the finished document
+curl -F file=@letter.pdf http://localhost:8000/v1/ocr               # PDF: returns a job to poll
+curl http://localhost:8000/v1/jobs/<id>                             # status + page progress
+curl -OJ "http://localhost:8000/v1/jobs/<id>/export?format=docx"    # docx | html | md | json | txt
+```
+
+| Setting | Default | Meaning |
+| :--- | :--- | :--- |
+| `NETRA_API_KEY` | *(unset)* | Require `X-API-Key` / `Authorization: Bearer` on `/v1/*`. Set it before exposing the port beyond your machine. |
+| `NETRA_MAX_UPLOAD_MB` / `NETRA_MAX_PDF_PAGES` | `50` / `100` | Upload limits. |
+| `NETRA_JOB_TTL_HOURS` | `24` | Documents (and edits) are deleted this long after their last change. |
+| `NETRA_DETECTOR` / `NETRA_DECODER` | `yolo` / `ar` | Defaults for new uploads (`ar` = autoregressive; `blockwise` gives the same text, usually faster). |
+
+Without Docker: `pip install "netra-ocr[server]"`, then `netra_ocr serve`.
+
+> **Licensing:** the app bundles `ultralytics` and `doclayout-yolo`, both **AGPL-3.0**. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) before redistributing the images or running a modified version as a public service.
+
+---
+
 ## 1. Abstract
 
 This work presents **Netra-OCR**, a **17M**-parameter model designed to process variable-length text-line images with high accuracy and low latency. Trained from scratch on a dataset of **1.3M** bilingual (Khmer and English) text-line images, the model employs an encoder-decoder architecture. Specifically, the vision encoder integrates a Squeeze-and-Excitation (SE) network with a Transformer encoder to extract robust spatial features, while the decoder utilizes a standard Transformer architecture for autoregressive text generation. To accommodate the distinct orthographic structures of the two languages, we implement a hybrid tokenization strategy: English text is processed strictly at the character level, whereas Khmer text utilizes a mixture of character-level and character-cluster representations.
@@ -162,8 +205,11 @@ pip install "netra-ocr[tesseract]"
 # .docx output support, for KhmerOCRPipeline's output_path=*.docx
 pip install "netra-ocr[docx]"
 
-# Flask browser UI (app.py)
-pip install "netra-ocr[web]"
+# Page layout analysis (DocLayout-YOLO) and PDF input, for structured documents
+pip install "netra-ocr[layout,pdf]"
+
+# Web app + REST API (netra_ocr serve); includes yolo, layout, pdf and docx
+pip install "netra-ocr[server]"
 
 # Everything above, for the full detector+recognizer pipeline with all detectors/formats
 pip install "netra-ocr[full]"
@@ -300,16 +346,26 @@ vocabulary, so switching between them never changes the recognized text:
 | `ar` (default) | `khmerocr_cluster_ar.pth` | Plain autoregressive decoding, one token per step. |
 | `blockwise` | `khmerocr_cluster_blockwise.pth` | [Stern et al. 2018](https://arxiv.org/abs/1811.03115) blockwise-parallel decoding — proposes several tokens ahead each step and verifies them against the same frozen base decoder used by `ar`, so output is provably identical to greedy `ar` decoding, just usually faster. Only supports greedy decoding (`beam_width` is ignored). |
 
-### 3. Web App (Browser UI)
-A Flask web interface ([`app.py`](app.py)) for uploading an image, picking a detector/output format, and viewing the recognized text with bounding-box overlays in the browser.
+### 3. Web App (Browser UI) and REST API
+See [Quick start](#quick-start-netra-ocr-app-docker). Without Docker:
 
 ```bash
-pip install flask
-python app.py
-# open http://localhost:5000
+pip install "netra-ocr[server]"
+netra_ocr serve            # http://localhost:8000 (add --host 0.0.0.0 to allow other machines)
 ```
 
-Upload a JPG/PNG/TIFF/BMP (max 20 MB), choose a detector (`tesseract`, `yolo`, or `legacy`) and output format (`.txt`, `.md`, `.json`, `.docx`), then run OCR and download the result. Pipelines are cached in memory per detector configuration for fast repeat runs.
+### 4. Structured documents (layout analysis) from Python
+```python
+from netra_ocr.ocr_engine import KhmerOCRPipeline
+from netra_ocr.exporters import save_document
+
+pipeline = KhmerOCRPipeline(detector="yolo", layout=True)   # needs the "layout" extra
+doc = pipeline.process_document("letter.pdf")               # images, multi-page TIFF or PDF ("pdf" extra)
+for block in doc.blocks:                                    # heading / paragraph / table / figure / caption / ...
+    print(block["type"], block.get("text") or block.get("rows"))
+save_document(doc, "letter.docx")                           # .docx .html .md .json .txt
+```
+CLI: `netra_ocr --image letter.pdf --output letter.docx --layout`
 
 ---
 

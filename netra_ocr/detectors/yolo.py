@@ -1,7 +1,7 @@
 import os
 import cv2
 from PIL import Image
-from .base import BaseTextDetector, DetectedLine
+from .base import BaseTextDetector, DetectedLine, ImageInput, load_bgr
 from .refine import expand_boxes_horizontally
 
 _WEIGHTS_PATH = os.path.join(
@@ -27,15 +27,19 @@ class YoloDetector(BaseTextDetector):
         self._refine = refine
         self._gap_ratio = gap_ratio
 
-    def detect(self, image_path: str) -> list:
+    def detect(self, image: ImageInput) -> list:
+        img_bgr = load_bgr(image)
+        # NETRA_DEVICE pins every model to one device (e.g. "cpu" on a GPU
+        # host); unset, ultralytics picks the GPU when there is one.
+        device = os.environ.get("NETRA_DEVICE")
         results = self._model.predict(
-            source=image_path,
+            source=img_bgr,
             conf=self._conf,
             iou=self._iou,
             imgsz=640,
             verbose=False,
+            **({"device": device} if device else {}),
         )
-        img_bgr = cv2.imread(image_path)
         img_h, img_w = img_bgr.shape[:2]
 
         # Pass 1: collect raw (box, label), applying the fixed pad + min-size filter.

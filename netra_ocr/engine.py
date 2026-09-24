@@ -1495,8 +1495,8 @@ class KhmerLineDetector:
             return gray
 
         angles = []
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
+        # OpenCV 4 returns (N, 1, 4), OpenCV 5 (N, 4): flatten to one row per segment.
+        for x1, y1, x2, y2 in np.asarray(lines).reshape(-1, 4):
             if abs(x2 - x1) > 10:  # not vertical
                 angle = np.arctan2(y2 - y1, x2 - x1) * 180 / np.pi
                 if abs(angle) < 15:  # only small skew

@@ -1,0 +1,18 @@
+# docker compose up --build   ->  http://localhost:8000
+services:
+  netra-ocr:
+    image: ghcr.io/netra-ai-lab/netra-ocr:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports: ["8000:8000"]
+    volumes: ["netra-data:/data"]
+    environment:
+      # NETRA_API_KEY: change-me     # require a key before exposing this beyond your machine
+      NETRA_MAX_UPLOAD_MB: "50"
+      NETRA_MAX_PDF_PAGES: "100"
+      NETRA_JOB_TTL_HOURS: "24"
+    restart: unless-stopped
+
+volumes:
+  netra-data:

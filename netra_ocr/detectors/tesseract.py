@@ -1,6 +1,6 @@
 import cv2
 from PIL import Image
-from .base import BaseTextDetector, DetectedLine
+from .base import BaseTextDetector, DetectedLine, ImageInput, load_bgr
 
 
 class TesseractDetector(BaseTextDetector):
@@ -16,10 +16,8 @@ class TesseractDetector(BaseTextDetector):
         print("Initializing KhmerLineDetector (Tesseract)...")
         self._detector = KhmerLineDetector()
 
-    def detect(self, image_path: str) -> list:
-        img_bgr = cv2.imread(image_path)
-        if img_bgr is None:
-            raise FileNotFoundError(f"Could not read image: {image_path}")
+    def detect(self, image: ImageInput) -> list:
+        img_bgr = load_bgr(image)
         result = self._detector.detect(img_bgr)
         lines = []
         for lb, crop_np in zip(result.lines, result.line_crops):

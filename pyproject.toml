@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netra-ocr"
-version = "1.0.0"
+version = "1.1.0"
 description = "Khmer OCR engine using a Squeeze-and-Excitation Transformer network for text-line recognition, with pluggable text detectors (YOLO, Tesseract, classic CV)."
 readme = "readme.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Nhem Darayut", email = "darayutnhem009@gmail.com"},
@@ -50,11 +50,17 @@ tesseract = ["pytesseract", "scipy", "scikit-image", "networkx"]
 # using the full KhmerOCRPipeline with a .docx output path; not required by
 # the recognizer or any detector on its own.
 docx = ["python-docx"]
-# The Flask browser UI (app.py).
-web = ["flask"]
-# Everything needed to run the full detector+recognizer pipeline
-# (KhmerOCRPipeline) with every detector and output format available.
-full = ["netra-ocr[yolo,tesseract,docx,web]"]
+# DocLayout-YOLO page layout analysis (KhmerOCRPipeline(layout=True)).
+# Note: doclayout-yolo, like ultralytics, is AGPL-3.0 -- see THIRD_PARTY_LICENSES.md.
+layout = ["doclayout-yolo"]
+# PDF input (rendered with pdfium).
+pdf = ["pypdfium2"]
+# The web app + REST API (netra_ocr serve). Pulls in everything it uses.
+server = ["fastapi", "uvicorn[standard]", "python-multipart", "netra-ocr[yolo,tesseract,layout,pdf,docx]"]
+# Kept for backwards compatibility: the old Flask UI was replaced by the server.
+web = ["netra-ocr[server]"]
+# Everything: every detector, layout analysis, PDF, all output formats, the server.
+full = ["netra-ocr[yolo,tesseract,docx,layout,pdf,server]"]
 
 [project.urls]
 Homepage = "https://github.com/netra-ai-lab/Khmer-OCR-CNN-Transformer"
@@ -92,3 +98,4 @@ include-package-data = false
 [tool.setuptools.package-data]
 "netra_ocr.detectors" = ["yolo26s_best/best.pt", "yolo26s_best/args.yaml"]
 "netra_ocr.recognition" = ["*.json"]
+"netra_ocr.server" = ["static/*.html", "static/*.css", "static/*.svg", "static/js/*.js", "static/fonts/*.woff2"]

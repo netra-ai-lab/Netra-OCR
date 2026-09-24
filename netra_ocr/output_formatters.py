@@ -77,7 +77,8 @@ def _save_json(segments, output_path, image_path=None, image_size=None, **_):
         "image_path": image_path,
         "image_size": list(image_size) if image_size else None,
         "lines": [
-            {"text": s["text"], "bbox": list(s["bbox"])}
+            # int(): detector boxes may hold numpy ints, which json can't encode.
+            {"text": s["text"], "bbox": [int(v) for v in s["bbox"]]}
             for s in segments if s.get("type") == "text"
         ],
     }

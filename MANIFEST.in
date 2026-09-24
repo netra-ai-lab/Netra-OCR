@@ -8,6 +8,7 @@ include requirements.txt
 include netra_ocr/detectors/yolo26s_best/best.pt
 include netra_ocr/detectors/yolo26s_best/args.yaml
 recursive-include netra_ocr/recognition *.json
+recursive-include netra_ocr/server/static *.html *.css *.svg *.js *.woff2
 
 # Never ship build artifacts or the other (large) checkpoints
 global-exclude *.pyc

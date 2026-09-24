@@ -1,11 +1,13 @@
 import argparse
+import logging
 import os
-import sys
 from .config import OCRConfig
 from .utils import setup_logging, autodetect_config
 from .cluster_tokenizer import ClusterTokenizer
 from .predictor import OCRPredictor
 from .model.model import KhmerOCR
+
+logger = logging.getLogger(__name__)
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -54,23 +56,20 @@ def _get_predictor(model_path=None, vocab_path=None, decoder: str = "ar"):
     if cache_key in _PREDICTOR_CACHE:
         return _PREDICTOR_CACHE[cache_key]
 
-    try:
-        detected_cfg = autodetect_config(resolved_model_path)
-        config = OCRConfig(**detected_cfg)
-        tokenizer = ClusterTokenizer(resolved_vocab_path)
+    # Load failures propagate to the caller (no sys.exit): a long-running
+    # process such as the web server must be able to report and survive them.
+    detected_cfg = autodetect_config(resolved_model_path)
+    config = OCRConfig(**detected_cfg)
+    tokenizer = ClusterTokenizer(resolved_vocab_path)
 
-        predictor = OCRPredictor(
-            model_path=resolved_model_path,
-            tokenizer=tokenizer,
-            config=config,
-            model_class=KhmerOCR
-        )
-        _PREDICTOR_CACHE[cache_key] = predictor
-        return predictor
-
-    except Exception as e:
-        print(f"Failed to load model: {e}")
-        sys.exit(1)
+    predictor = OCRPredictor(
+        model_path=resolved_model_path,
+        tokenizer=tokenizer,
+        config=config,
+        model_class=KhmerOCR
+    )
+    _PREDICTOR_CACHE[cache_key] = predictor
+    return predictor
 
 # ==============================================================================
 # PUBLIC API
@@ -98,8 +97,8 @@ def recognize(image_input, beam_width: int = 3, model_path=None, vocab_path=None
         # we'd need to modify predictor.py, but let's assume it handles objects.
         result_text = predictor.predict(image_input, beam_width=beam_width)
         return result_text
-    except Exception as e:
-        print(f"Prediction error: {e}")
+    except Exception:
+        logger.exception("Prediction error")
         return ""
 
 def recognize_batch(image_list: list, beam_width: int = 1, batch_size: int = 8, model_path=None, vocab_path=None, decoder: str = "ar") -> list:
@@ -110,8 +109,8 @@ def recognize_batch(image_list: list, beam_width: int = 1, batch_size: int = 8, 
     try:
         # Pass the batch_size to the predictor
         return predictor.predict_batch(image_list, beam_width=beam_width, batch_size=batch_size)
-    except Exception as e:
-        print(f"Batch prediction error: {e}")
+    except Exception:
+        logger.exception("Batch prediction error; retrying one image at a time")
         return [recognize(img, beam_width, model_path, vocab_path, decoder) for img in image_list]
 
 # ===================

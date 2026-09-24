@@ -1,0 +1,19 @@
+# Only pyproject/readme/LICENSE/MANIFEST.in, netra_ocr/ and docker/ are needed.
+# Everything else (venvs, HF dataset cache, training checkpoints, test sets)
+# would otherwise make the build context tens of GB.
+**
+!pyproject.toml
+!readme.md
+!LICENSE
+!MANIFEST.in
+!requirements.txt
+!netra_ocr/
+!docker/fetch_weights.py
+!docker/smoke_test.py
+netra_ocr/recognition/weight/
+netra_ocr/recognition/scripts/
+netra_ocr/recognition/archive/
+netra_ocr/detectors/yolo26s_best/last.pt
+**/__pycache__
+**/*.pyc
+**/*.egg-info

@@ -1,6 +1,6 @@
 import cv2
 from PIL import Image
-from .base import BaseTextDetector, DetectedLine
+from .base import BaseTextDetector, DetectedLine, ImageInput, load_bgr
 
 
 class LegacyDetector(BaseTextDetector):
@@ -13,10 +13,8 @@ class LegacyDetector(BaseTextDetector):
         self._pad = max(0, pad) if pad is not None else 0
         self._detector = ImageProcessingTextDetector(**kwargs)
 
-    def detect(self, image_path: str) -> list:
-        img_bgr = cv2.imread(image_path)
-        if img_bgr is None:
-            raise FileNotFoundError(f"Could not read image: {image_path}")
+    def detect(self, image: ImageInput) -> list:
+        img_bgr = load_bgr(image)
         line_boxes = self._detector.detect_lines(img_bgr)
         h_img, w_img = img_bgr.shape[:2]
         pil_img = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))

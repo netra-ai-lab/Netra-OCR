@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Netra OCR</title>
+  <meta name="description" content="Khmer document OCR that runs on your own machine. Upload a scan or PDF, correct the structured result, export to Word.">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/static/fonts/KantumruyPro-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/app.css">
+  <script type="module" src="/static/js/main.js"></script>
+</head>
+<body>
+  <a class="skip" href="#view">Skip to content</a>
+
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="#/" aria-label="Netra OCR, documents">
+        <span class="mark" aria-hidden="true"></span>
+        <span class="brand-word">Netra OCR</span>
+      </a>
+      <nav class="nav-links" aria-label="Main">
+        <a href="#/" data-nav="home" data-i18n="nav.documents"></a>
+        <a href="#/api" data-nav="api" data-i18n="nav.api"></a>
+      </nav>
+      <span id="engine-status" class="status status-running engine-status" role="status" data-i18n="engine.loading"></span>
+    </div>
+  </header>
+
+  <main id="view" tabindex="-1"></main>
+
+  <footer class="foot">
+    <div class="foot-inner meta">
+      <p><span id="footer-version">Netra OCR</span> · <span data-i18n="footer.local"></span></p>
+      <p class="foot-links">
+        <a href="/docs" target="_blank" rel="noopener" data-i18n="footer.apidocs"></a>
+        <a href="https://github.com/netra-ai-lab/Netra-OCR" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/netra-ai-lab/Netra-OCR/issues" target="_blank" rel="noopener" data-i18n="footer.issues"></a>
+      </p>
+    </div>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
