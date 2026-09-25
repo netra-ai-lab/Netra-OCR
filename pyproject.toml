@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netra-ocr"
-version = "1.1.0"
+version = "1.1.1"
 description = "Khmer OCR engine using a Squeeze-and-Excitation Transformer network for text-line recognition, with pluggable text detectors (YOLO, Tesseract, classic CV)."
 readme = "readme.md"
 requires-python = ">=3.10"
