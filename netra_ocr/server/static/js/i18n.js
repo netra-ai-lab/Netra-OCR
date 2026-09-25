@@ -10,8 +10,8 @@ const STRINGS = {
   "footer.apidocs": "API reference",
   "footer.issues": "Report a problem",
 
-  "home.title": "Documents",
-  "home.lede": "Read Khmer and English scans, photos and PDFs. Correct the result, then export it to Word.",
+  "home.title": "Read a document",
+  "home.lede": "Khmer and English scans, photos and PDFs. Correct the result, then export it to Word.",
 
   "drop.label": "Choose a PDF or image",
   "drop.title": "Drop a PDF or image here, or <span>browse</span>",
@@ -85,6 +85,7 @@ const STRINGS = {
   "ed.addParagraph": "Add paragraph",
   "ed.placeholder": "Type text…",
   "ed.original": "Original",
+  "ed.result": "Editable text",
 
   "type.heading-1": "Heading 1",
   "type.heading-2": "Heading 2",

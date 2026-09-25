@@ -20,6 +20,110 @@ function typeKey(b) {
   return b.type === "heading" ? `heading-${b.level || 1}` : b.type;
 }
 
+// ── sizing from the scan ────────────────────────────────────────────────
+// The editor draws each page as a sheet the width of the scan, so sizes are
+// in cqw (percent of the sheet's width): a paragraph, a logo or a gap takes
+// the same share of the sheet as it does of the scanned page.
+
+// A Khmer line box (stacked vowels and subscripts) is about 2x the type size.
+const LINE_TO_FONT = 0.54;
+// Fallback body size for pages with no measurable paragraph, ~15px on a 750px sheet.
+const DEFAULT_BODY = 0.02;
+// Clamp scan sizes by block type, relative to the page's body size, so a
+// heading always reads as one and a paragraph that was a heading shrinks back.
+// Paragraphs all take the body size: their measured line heights differ by
+// a few pixels, and on screen that reads as noise, not as the document.
+const SIZE_RANGE = {
+  "heading-1": [1.15, 2], "heading-2": [1.08, 1.6], "heading-3": [1, 1.4],
+  paragraph: [1, 1], caption: [0.8, 1], page_header: [0.75, 1], page_footer: [0.75, 1], table: [0.85, 1],
+};
+const DEFAULT_SIZE = { "heading-1": 1.4, "heading-2": 1.25, "heading-3": 1.1, caption: 0.88, page_header: 0.8, page_footer: 0.8 };
+
+function median(xs) {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function lineHeight(b) {
+  return median((b.lines || []).map((l) => l.bbox[3] - l.bbox[1]).filter((v) => v > 0));
+}
+
+const cqw = (fraction) => `${(fraction * 100).toFixed(3)}cqw`;
+const clampLen = (min, fraction, max) => `clamp(${min}, ${cqw(fraction)}, ${max})`;
+
+/** Margins and body size of one page, from where its blocks sit on the scan. */
+function pageMetrics(page, blocks) {
+  const W = page.width || 0;
+  const placed = blocks.filter((b) => b.bbox);
+  if (!W || !placed.length) return { W, body: DEFAULT_BODY, left: 0.08, right: 0.08, top: 0.07 };
+  const paraH = median(blocks.filter((b) => b.type === "paragraph").map(lineHeight).filter(Boolean))
+    ?? median(placed.map(lineHeight).filter(Boolean));
+  const within = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const left = Math.min(...placed.map((b) => b.bbox[0])) / W;
+  const right = 1 - Math.max(...placed.map((b) => b.bbox[2])) / W;
+  const top = Math.min(...placed.map((b) => b.bbox[1])) / W;
+  return {
+    W,
+    body: paraH ? (paraH / W) * LINE_TO_FONT : DEFAULT_BODY,
+    left: within(left, 0.04, 0.14),
+    right: within(right, 0.04, 0.14),
+    top: within(top, 0.04, 0.12),
+  };
+}
+
+/** Type size of a text or table block, from its line height on the scan. */
+function fontStyle(b, m) {
+  if (b.type === "figure" || b.type === "formula") return "";
+  const key = typeKey(b);
+  const [lo, hi] = SIZE_RANGE[key] || [0.85, 1.25];
+  const h = lineHeight(b);
+  const scale = h && m.W ? ((h / m.W) * LINE_TO_FONT) / m.body : DEFAULT_SIZE[key] || 1;
+  return `font-size:${clampLen("11px", m.body * Math.min(hi, Math.max(lo, scale)), "44px")}`;
+}
+
+/** Space above a block or row: its gap to what's above it on the scan. */
+function gapStyle(top, prevBottom, m) {
+  if (top == null || prevBottom == null || !m.W) return "";
+  const gap = (top - prevBottom) / m.W;
+  return `margin-top:${gap > 0 ? clampLen("2px", gap, "56px") : "2px"}`;
+}
+
+/**
+ * Group blocks that sit side by side on the scan (a logo beside a motto, a
+ * reference number opposite a date) into rows. A block joins the current
+ * row when it shares the row's height band and starts right of the last
+ * block in it; anything else starts a new row.
+ */
+function sideBySide(blocks) {
+  const rows = [];
+  for (const b of blocks) {
+    const row = rows.at(-1);
+    const last = row?.at(-1);
+    if (row && b.bbox && last.bbox) {
+      const top = Math.min(...row.map((r) => r.bbox[1]));
+      const bottom = Math.max(...row.map((r) => r.bbox[3]));
+      const overlap = Math.min(bottom, b.bbox[3]) - Math.max(top, b.bbox[1]);
+      const shorter = Math.min(bottom - top, b.bbox[3] - b.bbox[1]);
+      if (overlap > 0.4 * shorter && b.bbox[0] >= last.bbox[2] - 2) {
+        row.push(b);
+        continue;
+      }
+    }
+    rows.push([b]);
+  }
+  return rows;
+}
+
+/** Figures keep the width and horizontal place they have on the scan. */
+function figureStyle(b, m) {
+  if (!b.bbox || !m.W) return "";
+  const width = (b.bbox[2] - b.bbox[0]) / m.W;
+  const indent = Math.max(0, b.bbox[0] / m.W - m.left);
+  return `width:${cqw(width)};margin-left:${cqw(indent)}`;
+}
+
 export function renderJob(root, jobId) {
   let disposed = false;
   let pollTimer = null;
@@ -210,35 +314,83 @@ function renderEditor(root, job, initialDoc) {
   const addBtn = h("button", { class: "pill pill-sm add-block", type: "button", onclick: () => addParagraph() },
     icon("plus"), t("ed.addParagraph"));
   addBtn.querySelector("svg").style.width = "14px";
-  const docCol = h("div", {}, docEl);
+  const docCol = h("div", {},
+    h("div", { class: "viewer-head" }, h("span", { class: "eyebrow muted2" }, t("ed.result"))),
+    docEl);
 
   function blockIndex(id) { return state.doc.blocks.findIndex((b) => b.id === id); }
   function blockById(id) { return state.doc.blocks.find((b) => b.id === id); }
 
+  // One sheet per page, in reading order. Blocks moved onto another page
+  // follow their page number, so a run of the same page is one sheet.
   function renderDoc() {
-    const children = [];
-    let prevPage = null;
+    const sheets = [];
+    let run = null;
     for (const b of state.doc.blocks) {
-      if (pages.length > 1 && b.page !== prevPage) {
-        children.push(h("div", { class: "page-break eyebrow" }, t("ed.pageLabel", { n: num(b.page + 1) })));
+      if (!run || b.page !== run.page) {
+        run = { page: b.page, blocks: [] };
+        sheets.push(run);
       }
-      prevPage = b.page;
-      children.push(renderBlock(b));
+      run.blocks.push(b);
     }
+    const children = sheets.map((s) => renderSheet(s.page, s.blocks));
     if (!state.doc.blocks.length) children.push(h("p", { class: "empty" }, t("ed.empty")));
-    docEl.replaceChildren(...children, addBtn, hint);
+    docEl.replaceChildren(...children, h("div", { class: "doc-foot" }, addBtn, hint));
     renderOverlay();
     renderContext();
   }
 
-  function renderBlock(b) {
+  function renderSheet(pageIndex, blocks) {
+    const page = pages[pageIndex] || {};
+    const m = pageMetrics(page, blocks);
+    const body = h("div", {
+      class: "sheet-body",
+      style: `padding:${cqw(m.top)} ${cqw(m.right)} ${cqw(0.09)} ${cqw(m.left)}`,
+    });
+    let prevBottom = null;
+    for (const row of sideBySide(blocks)) {
+      const top = row[0].bbox ? Math.min(...row.map((b) => b.bbox[1])) : null;
+      const gap = gapStyle(top, prevBottom, m);
+      if (row.length === 1) {
+        body.append(renderBlock(row[0], [gap, fontStyle(row[0], m)].join(";"), m));
+      } else {
+        // Pictures keep their scan width and place. Text gets the whole span
+        // up to the next block, since the sheet's font never matches the
+        // scan's exactly; left-aligned text still starts where it did.
+        const right = m.W * (1 - m.right);
+        let x = m.left * m.W;
+        body.append(h("div", { class: "block-row", style: gap }, row.map((b, i) => {
+          const next = row[i + 1];
+          const picture = !TEXT_TYPES.has(b.type) && b.type !== "table";
+          const start = picture || (b.align || "left") === "left" ? Math.max(x, b.bbox[0]) : x;
+          const end = picture ? b.bbox[2] : Math.max(b.bbox[2], next ? next.bbox[0] : right);
+          const style = [fontStyle(b, m), `width:${cqw((end - start) / m.W)}`,
+            `margin-left:${cqw((start - x) / m.W)}`].join(";");
+          x = end;
+          return renderBlock(b, style, m, true);
+        })));
+      }
+      prevBottom = row[0].bbox ? Math.max(...row.map((b) => b.bbox[3])) : null;
+    }
+    const sheet = h("div", {
+      class: "sheet",
+      style: page.width && page.height ? `aspect-ratio:${page.width} / ${page.height}` : null,
+    }, body);
+    return h("section", { class: "sheet-wrap", "aria-label": t("ed.pageLabel", { n: num(pageIndex + 1) }) },
+      pages.length > 1 ? h("p", { class: "sheet-label eyebrow" }, t("ed.pageLabel", { n: num(pageIndex + 1) })) : null,
+      sheet);
+  }
+
+  function renderBlock(b, style, m, inRow = false) {
     const key = typeKey(b);
     const el = h("div", {
-      class: `block b-${b.type === "heading" ? `heading-${b.level || 1}` : b.type} align-${b.align || "left"}`
-        + `${b.id === state.activeId ? " active" : ""}`,
+      class: `block b-${key} align-${b.align || "left"}${b.id === state.activeId ? " active" : ""}`,
       dataset: { id: b.id },
+      style,
     });
-    const label = h("div", { class: "block-label", onclick: () => focusBlock(b.id) }, t(`type.${key}`));
+    // The block type is a tag shown on hover and selection, like the boxes
+    // on the scan, so the sheet itself reads as the document.
+    const label = h("span", { class: "block-tag", "aria-hidden": "true" }, t(`type.${key}`));
     const body = h("div", { class: "block-body" });
 
     if (TEXT_TYPES.has(b.type)) {
@@ -247,7 +399,8 @@ function renderEditor(root, job, initialDoc) {
       body.append(ed);
     } else if (b.type === "table") {
       if (b.rows.length === 1 && b.rows[0].length === 1 && b.image) {
-        body.append(h("figure", { class: "tbl-image" }, h("img", { src: api.assetUrl(job.id, b.image), alt: "", loading: "lazy" })));
+        body.append(h("figure", { class: "tbl-image", style: inRow ? "width:100%" : figureStyle(b, m) },
+          h("img", { src: api.assetUrl(job.id, b.image), alt: "", loading: "lazy" })));
       }
       body.append(h("div", { class: "tbl-wrap" }, h("table", {}, h("tbody", {},
         b.rows.map((row, r) => h("tr", {}, row.map((cell, c) => {
@@ -258,7 +411,8 @@ function renderEditor(root, job, initialDoc) {
           return td;
         })))))));
     } else {
-      body.append(h("figure", {}, h("img", { src: api.assetUrl(job.id, b.image), alt: t(`type.${key}`), loading: "lazy" })));
+      body.append(h("figure", { style: inRow ? "width:100%" : figureStyle(b, m) },
+        h("img", { src: api.assetUrl(job.id, b.image), alt: t(`type.${key}`), loading: "lazy" })));
       body.tabIndex = 0;
     }
     el.append(label, body);

@@ -35,7 +35,7 @@ function showEngine() {
 async function loadInfo() {
   try {
     info = await api.info();
-    document.getElementById("footer-version").textContent = `Netra OCR ${info.version}`;
+    document.getElementById("footer-version").textContent = `Version ${info.version}`;
   } catch {
     info = null;
   }

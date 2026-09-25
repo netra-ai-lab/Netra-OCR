@@ -30,9 +30,9 @@ export function renderApi(root, info) {
   ];
 
   root.replaceChildren(h("div", { class: "wrap" },
-    h("section", { class: "page page-head api-head" },
-      h("h1", { class: "h2" }, t("api.title")),
-      h("p", { class: "meta" }, t("api.lede"))),
+    h("header", { class: "page page-head api-head reveal" },
+      h("h1", { class: "h1" }, t("api.title")),
+      h("p", { class: "lede muted" }, t("api.lede"))),
     section(1, t("api.s1"), t("api.s1.text"),
       code(`curl -F file=@scan.jpg${auth} \\\n  ${origin}/v1/ocr\n\n# PDF: returns 202 + job id; poll until "status": "done"\ncurl -F file=@letter.pdf${auth} ${origin}/v1/ocr\ncurl${auth.replace(" \\\n ", "")} ${origin}/v1/jobs/<id>`)),
     section(2, t("api.s2"), t("api.s2.text"),

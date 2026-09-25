@@ -104,7 +104,7 @@ export function renderHome(root, info) {
     }
   });
 
-  const upload = h("div", { class: "panel upload" },
+  const upload = h("div", { class: "upload reveal-2" },
     drop,
     h("div", { class: "upload-bar" },
       check(layout, t("opt.layout"), t("opt.layoutDesc")),
@@ -184,9 +184,9 @@ export function renderHome(root, info) {
   loadJobs();
 
   root.replaceChildren(h("section", { class: "wrap page" },
-    h("div", { class: "page-head" },
-      h("h1", { class: "h2" }, t("home.title")),
-      h("p", { class: "meta" }, t("home.lede"))),
+    h("header", { class: "page-head reveal" },
+      h("h1", { class: "h1" }, t("home.title")),
+      h("p", { class: "lede muted" }, t("home.lede"))),
     upload,
     h("div", { class: "list-head" },
       h("h2", { class: "h3" }, t("recent.title")),
