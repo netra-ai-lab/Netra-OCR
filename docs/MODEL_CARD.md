@@ -73,7 +73,7 @@ The two released checkpoints share one model and differ only in decoding. The `b
 
 <p align="center"><img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/blockwise_decoding.png" width="90%" alt="One step of blockwise parallel decoding: propose 4 tokens, verify them in one pass, keep the matching prefix plus the decoder's own next token"></p>
 
-*One decoding step.* The head proposes 4 tokens, the model checks them in one parallel pass, and the proposals are kept up to the first disagreement, plus the model's own token there. Every kept token is one greedy decoding would write, so the output is identical.
+*One decoding step*, reading ព្រះរាជាណាចក្រកម្ពុជា (“Kingdom of Cambodia”) one character cluster per token. The head proposes 4 tokens, the model checks them in one parallel pass, and the proposals are kept up to the first disagreement, plus the model's own token there. Every kept token is one greedy decoding would write, so the output is identical.
 
 On KHOB (325 lines, greedy decoding):
 

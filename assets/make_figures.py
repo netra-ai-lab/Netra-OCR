@@ -167,11 +167,12 @@ def block_diagram(kinds, before, after, out, before_title, after_title, arrow_la
     plt.close(fig)
 
 
-def blockwise_steps(prefix, proposals, greedy, out, block_size=4):
+def blockwise_steps(prefix, proposals, greedy, out, block_size=4, token_font="Noto Sans Khmer"):
     """One step of blockwise parallel decoding (Stern et al. 2018), as three rows: predict, verify, accept.
 
     prefix:    tokens decoded so far
     proposals: the block_size tokens proposed in one pass (p1 is the base decoder itself, so it always matches)
+    token_font: font for the tokens; Khmer clusters need one with Khmer glyphs
     greedy:    the base decoder's own greedy choice at each proposed position, from one verification pass
     """
     n_ok = next((i for i, (p, g) in enumerate(zip(proposals, greedy)) if p != g), block_size)
@@ -186,8 +187,8 @@ def blockwise_steps(prefix, proposals, greedy, out, block_size=4):
     def box(i, y, tok, fc, ec, ls="-", tc=INK, strike=False, weight="normal"):
         ax.add_patch(FancyBboxPatch((xs[i], y), w, h, boxstyle="round,pad=0,rounding_size=0.12",
                                     fc=fc, ec=ec, lw=1.1, ls=ls))
-        ax.text(xs[i] + w / 2, y + h / 2, "␣" if tok == " " else tok, ha="center", va="center", fontsize=13,
-                color=tc, weight=weight)
+        ax.text(xs[i] + w / 2, y + h / 2, "␣" if tok == " " else tok, ha="center", va="center", fontsize=14,
+                color=tc, weight=weight, family=token_font)
         if strike:
             ax.plot([xs[i] + 0.15, xs[i] + w - 0.15], [y + 0.15, y + h - 0.15], color=COLOR["muted-2"], lw=1.2)
 
@@ -272,9 +273,10 @@ def main(out_dir: Path) -> None:
                         ("Netra-OCR", [0.96, 5.31, 2.95], None)])],
                  labels, out_dir / "results.png", ylabel="Character error rate (%), lower is better",
                  ylim=(0, 105), legend_top=True)
-    # an English line, so the tokens are single characters: "Phn" decoded, the head proposes "omen",
-    # the base decoder's greedy choice is "om P" -> accept "om" plus its own " "
-    blockwise_steps(list("Phn"), list("omen"), list("om P"), out_dir / "blockwise_decoding.png")
+    # ព្រះរាជាណាចក្រកម្ពុជា as the cluster tokenizer splits it. The head drops the subscript of ក្រ at p3, so the
+    # base decoder keeps ណា ច and adds its own ក្រ
+    blockwise_steps(["ព្រះ", "រា", "ជា"], ["ណា", "ច", "ក", "ម្ពុ"], ["ណា", "ច", "ក្រ", "ក"],
+                    out_dir / "blockwise_decoding.png")
     print("wrote results.png, blockwise_decoding.png in", out_dir)
 
 

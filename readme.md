@@ -106,7 +106,7 @@ Netra-OCR was trained entirely on synthetic data: **1.3M** text-line images, of 
   <img src="https://raw.githubusercontent.com/netra-ai-lab/Netra-OCR/master/assets/blockwise_decoding.png" width="900" alt="One step of blockwise parallel decoding: the head proposes 4 tokens, the decoder checks them in one pass, and the matching prefix plus the decoder's own next token are kept" />
 </p>
 
-<p><em>Figure 3: One step of blockwise parallel decoding. (1) The proposal head guesses the next 4 tokens at once. (2) The decoder reads them in one parallel pass and gives its own greedy choice at each position. (3) Proposals are kept up to the first disagreement, and the decoder's own token at that point is added. Every kept token is one greedy decoding would also write, so the output is identical.</em></p>
+<p><em>Figure 3: One step of blockwise parallel decoding, reading ព្រះរាជាណាចក្រកម្ពុជា (“Kingdom of Cambodia”) one character cluster per token. (1) The proposal head guesses the next 4 tokens at once. (2) The decoder reads them in one parallel pass and gives its own greedy choice at each position. (3) Proposals are kept up to the first disagreement, and the decoder's own token at that point is added. Every kept token is one greedy decoding would also write, so the output is identical.</em></p>
 
 Speed on KHOB (325 lines), same model, greedy decoding:
 
