@@ -1,0 +1,39 @@
+# Netra Lab chart style for matplotlib. Values from tokens.json ("chart" block);
+# rules from docs/CHART_STYLE_GUIDE.md. Use with brand_colors.py, which also
+# registers the Khmer font and gives the hatched "Ours" bar.
+#   plt.style.use("assets/brand/netra.mplstyle")
+
+# Series order: Ours (Netra orange) first, then the muted baselines.
+axes.prop_cycle: cycler('color', ['e75f1b', '668bb9', '45a382', '9480b9', 'a9a9a9'])
+
+figure.facecolor: ffffff
+axes.facecolor: ffffff
+savefig.facecolor: ffffff
+savefig.dpi: 200
+savefig.bbox: tight
+
+font.family: sans-serif
+font.sans-serif: Kantumruy Pro, DejaVu Sans, Noto Sans Khmer  # Noto Sans Khmer has no Latin: keep it after DejaVu
+font.size: 11
+text.color: 1c1917
+axes.labelcolor: 1c1917
+axes.titlecolor: 1c1917
+axes.titleweight: normal
+xtick.color: 877e76
+ytick.color: 877e76
+xtick.labelcolor: 1c1917
+ytick.labelcolor: 1c1917
+
+axes.edgecolor: 877e76
+axes.spines.top: False
+axes.spines.right: False
+axes.axisbelow: True
+axes.grid: True
+axes.grid.axis: y
+grid.color: e0d5c5
+grid.linestyle: --
+grid.linewidth: 0.7
+
+patch.linewidth: 0
+legend.frameon: False
+hatch.color: ffffff
