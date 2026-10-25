@@ -167,95 +167,98 @@ def block_diagram(kinds, before, after, out, before_title, after_title, arrow_la
     plt.close(fig)
 
 
-def blockwise_steps(prefix, proposals, greedy, out, block_size=4, token_font="Noto Sans Khmer"):
-    """One step of blockwise parallel decoding (Stern et al. 2018), as three rows: predict, verify, accept.
+def blockwise_steps(prefix, proposals, greedy, out, token_font="Noto Sans Khmer"):
+    """One step of blockwise parallel decoding (Stern et al. 2018): propose, verify, accept.
 
     prefix:    tokens decoded so far
-    proposals: the block_size tokens proposed in one pass (p1 is the base decoder itself, so it always matches)
-    token_font: font for the tokens; Khmer clusters need one with Khmer glyphs
+    proposals: the tokens the proposal head guesses in one pass (p1 is the base decoder itself, so it always matches)
     greedy:    the base decoder's own greedy choice at each proposed position, from one verification pass
+    token_font: font for the tokens; Khmer clusters need one with Khmer glyphs
     """
-    n_ok = next((i for i, (p, g) in enumerate(zip(proposals, greedy)) if p != g), block_size)
-    w, h, gx = 1.0, 1.0, 0.18
-    rows = {"predict": 6.2, "verify": 3.55, "accept": 0.9}
-    x0 = 5.4
-    xs = [x0 + i * (w + gx) for i in range(len(prefix) + block_size)]
-    fig, ax = plt.subplots(figsize=(12, 4.6))
+    block = len(proposals)
+    n_ok = next((i for i, (p, g) in enumerate(zip(proposals, greedy)) if p != g), block)
+    w, h, gx = 1.1, 1.1, 0.2
+    rows = {"propose": 6.0, "verify": 3.7, "accept": 1.4}
+    x0 = 5.2
+    xs = [x0 + i * (w + gx) for i in range(len(prefix) + block)]
+    k = len(prefix)
+    right = xs[-1] + w + 0.7
+    fig, ax = plt.subplots(figsize=(12, 5.2))
     ax.set_aspect("equal")
     ax.axis("off")
 
-    def box(i, y, tok, fc, ec, ls="-", tc=INK, strike=False, weight="normal"):
+    def box(i, y, tok, fc, ec, ls="-", tc=INK, strike=False):
         ax.add_patch(FancyBboxPatch((xs[i], y), w, h, boxstyle="round,pad=0,rounding_size=0.12",
-                                    fc=fc, ec=ec, lw=1.1, ls=ls))
-        ax.text(xs[i] + w / 2, y + h / 2, "␣" if tok == " " else tok, ha="center", va="center", fontsize=14,
-                color=tc, weight=weight, family=token_font)
+                                    fc=fc, ec=ec, lw=1.2, ls=ls))
+        ax.text(xs[i] + w / 2, y + h / 2, tok, ha="center", va="center", fontsize=16, color=tc, family=token_font)
         if strike:
-            ax.plot([xs[i] + 0.15, xs[i] + w - 0.15], [y + 0.15, y + h - 0.15], color=COLOR["muted-2"], lw=1.2)
+            ax.plot([xs[i] + 0.15, xs[i] + w - 0.15], [y + 0.15, y + h - 0.15], color=COLOR["muted-2"], lw=1.3)
 
     def prefix_row(y):
         for i, tok in enumerate(prefix):
             box(i, y, tok, COLOR["card"], COLOR["border"])
 
     def label(y, num, title, note):
-        ax.text(0.2, y + h / 2 + 0.22, f"{num}  {title}", ha="left", va="center", fontsize=12.5, color=INK,
+        ax.text(0.2, y + h / 2 + 0.24, f"{num}  {title}", ha="left", va="center", fontsize=13, color=INK,
                 weight="bold")
-        ax.text(0.2, y + h / 2 - 0.42, note, ha="left", va="center", fontsize=9, color=COLOR["muted"])
+        ax.text(0.2, y + h / 2 - 0.42, note, ha="left", va="center", fontsize=9.5, color=COLOR["muted"])
 
-    k = len(prefix)
-    right = xs[-1] + w + 0.6
-    # 1. predict: the proposal head guesses block_size tokens at once
-    y = rows["predict"]
-    label(y, 1, "Predict", "one decoder pass")
+    def note(y, text):
+        ax.text(right, y + h / 2, text, va="center", fontsize=10.5, color=INK, linespacing=1.35)
+
+    # 1. propose: the head guesses the next tokens all at once
+    y = rows["propose"]
+    label(y, 1, "Propose", "proposal head, one pass")
     prefix_row(y)
     for j, tok in enumerate(proposals):
         box(k + j, y, tok, COLOR["tint-orange"], OURS, ls=(0, (3, 2)))
-        ax.text(xs[k + j] + w / 2, y + h + 0.12, f"p{j + 1}", ha="center", va="bottom", fontsize=9,
+        ax.text(xs[k + j] + w / 2, y + h + 0.14, f"p{j + 1}", ha="center", va="bottom", fontsize=9.5,
                 color=COLOR["muted"])
-    ax.text(right, y + h / 2, f"{block_size} tokens proposed", va="center", fontsize=10, color=INK)
-    # 2. verify: the base decoder reads prefix + proposals once and gives its greedy token at every position
+    note(y, f"Guess the next {block} tokens\nat once")
+    # 2. verify: the base decoder reads prefix + guesses once; compare its choice under each guess
     y = rows["verify"]
-    label(y, 2, "Verify", "one decoder pass, in parallel")
-    prefix_row(y)
-    for j, tok in enumerate(greedy):
-        ok = j < n_ok
-        checked = j <= n_ok
-        box(k + j, y, tok, "white" if checked else COLOR["background"], INK if checked else COLOR["border"],
-            tc=INK if checked else COLOR["muted-2"])
-        if checked:
-            ax.text(xs[k + j] + w / 2, y + h + 0.12, "✓" if ok else "✗", ha="center", va="bottom", fontsize=12,
-                    color=OURS if ok else COLOR["accent-maroon"], weight="bold")
-    ax.text(right, y + h / 2, f"greedy choice matches p1–p{n_ok}", va="center", fontsize=10, color=INK)
-    # 3. accept: the matching prefix, plus the base decoder's own token where they first disagree
+    label(y, 2, "Verify", "base decoder, one pass")
+    for j in range(n_ok + 1 if n_ok < block else block):
+        box(k + j, y, greedy[j], CHART["figureBackground"], INK)
+        same = j < n_ok
+        ax.text(xs[k + j] + w / 2, (rows["propose"] + y + h) / 2, "=" if same else "≠", ha="center", va="center",
+                fontsize=17, color=OURS if same else COLOR["accent-maroon"], weight="bold")
+    ax.text(xs[k] - gx - 0.15, y + h / 2, "decoder's\nown choice", ha="right", va="center", fontsize=9.5,
+            color=COLOR["muted"], linespacing=1.2)
+    note(y, f"Same as p1–p{n_ok}, differs at p{n_ok + 1}:\nstop checking there" if n_ok < block
+         else f"Same as p1–p{block}")
+    # 3. accept: the matching guesses, plus the decoder's own token where they first differ
     y = rows["accept"]
-    label(y, 3, "Accept", "longest matching prefix")
+    label(y, 3, "Accept", "keep matches + the fix")
     prefix_row(y)
-    for j in range(block_size):
+    for j in range(block):
         if j < n_ok:
-            box(k + j, y, proposals[j], OURS, OURS, tc="white", weight="bold")
+            box(k + j, y, proposals[j], OURS, OURS, tc="white")
         elif j == n_ok:
-            box(k + j, y, greedy[j], COLOR["accent-maroon"], COLOR["accent-maroon"], tc="white", weight="bold")
+            box(k + j, y, greedy[j], COLOR["accent-maroon"], COLOR["accent-maroon"], tc="white")
         else:
             box(k + j, y, proposals[j], COLOR["background"], COLOR["muted-2"], ls=(0, (3, 2)),
                 tc=COLOR["muted-2"], strike=True)
-    ax.text(right, y + h / 2, f"+{n_ok + 1} tokens from 2 passes\n(greedy needs {n_ok + 1} passes)",
-            va="center", fontsize=10, color=INK, linespacing=1.3)
-    # arrows between rows, from the proposals down
-    mid = (xs[k] + xs[k + block_size - 1] + w) / 2
-    for a, b in (("predict", "verify"), ("verify", "accept")):
-        ax.add_patch(FancyArrowPatch((mid, rows[a] - 0.08), (mid, rows[b] + h + 0.62), arrowstyle="-|>",
-                                     mutation_scale=12, color=COLOR["muted-2"], lw=1.0))
-    # legend
-    ly, lx = -0.75, x0
+    added = min(n_ok + 1, block)
+    note(y, f"+{added} tokens from 2 passes\n(greedy decoding: {added} passes)")
+    # legend, laid out from measured text widths
+    ly, lx = 0.0, x0
+    xmax = right + 5.2
+    ax.set_xlim(0, xmax)  # fix the scale before measuring text
+    ax.set_ylim(ly - 0.3, rows["propose"] + h + 0.7)
+    fig.canvas.draw()
+    inv = ax.transData.inverted()
     for fc, ec, ls, text in ((COLOR["card"], COLOR["border"], "-", "decoded so far"),
-                             (OURS, OURS, "-", "accepted proposal"),
-                             (COLOR["accent-maroon"], COLOR["accent-maroon"], "-", "base decoder's own token"),
+                             (COLOR["tint-orange"], OURS, (0, (3, 2)), "guess"),
+                             (OURS, OURS, "-", "accepted guess"),
+                             (COLOR["accent-maroon"], COLOR["accent-maroon"], "-", "decoder's own token"),
                              (COLOR["background"], COLOR["muted-2"], (0, (3, 2)), "discarded")):
-        ax.add_patch(FancyBboxPatch((lx, ly), 0.42, 0.42, boxstyle="round,pad=0,rounding_size=0.06",
+        ax.add_patch(FancyBboxPatch((lx, ly), 0.45, 0.45, boxstyle="round,pad=0,rounding_size=0.07",
                                     fc=fc, ec=ec, lw=1.0, ls=ls))
-        ax.text(lx + 0.6, ly + 0.21, text, va="center", fontsize=9.5, color=INK)
-        lx += 0.6 + 0.16 * len(text) + 0.8
-    ax.set_xlim(0, max(right + 4.2, lx))
-    ax.set_ylim(ly - 0.3, rows["predict"] + h + 0.7)
+        t = ax.text(lx + 0.65, ly + 0.22, text, va="center", fontsize=10, color=INK)
+        bb = t.get_window_extent(fig.canvas.get_renderer())
+        lx = inv.transform((bb.x1, bb.y1))[0] + 0.8
+    ax.set_xlim(0, max(xmax, lx))
     fig.savefig(out, bbox_inches="tight", pad_inches=0.15)
     plt.close(fig)
 

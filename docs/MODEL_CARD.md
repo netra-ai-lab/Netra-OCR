@@ -22,10 +22,9 @@ tags:
 - netra-lab
 ---
 
-<div align="center">
-  <img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/symbol.png" height="72" alt="Netra Lab" style="vertical-align: middle; margin-right: 24px;" />
-  <img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/wordmark-latin.png" height="56" alt="Netra" style="vertical-align: middle;" />
-</div>
+<p align="center">
+  <img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/header.png" width="260" alt="Netra Lab" />
+</p>
 
 <hr>
 
@@ -71,9 +70,9 @@ Character error rate in %, on single text-line crops. Lower is better.
 
 The two released checkpoints share one model and differ only in decoding. The `blockwise` checkpoint adds a small proposal head ([Stern et al. 2018](https://arxiv.org/abs/1811.03115)) to the frozen model:
 
-<p align="center"><img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/blockwise_decoding.png" width="90%" alt="One step of blockwise parallel decoding: propose 4 tokens, verify them in one pass, keep the matching prefix plus the decoder's own next token"></p>
+<p align="center"><img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/blockwise_decoding.png" width="90%" alt="One step of blockwise parallel decoding: the head guesses 4 tokens, the decoder's own choice matches the first two and differs at the third, so the two matches plus the decoder's token are kept"></p>
 
-*One decoding step*, reading ព្រះរាជាណាចក្រកម្ពុជា (“Kingdom of Cambodia”) one character cluster per token. The head proposes 4 tokens, the model checks them in one parallel pass, and the proposals are kept up to the first disagreement, plus the model's own token there. Every kept token is one greedy decoding would write, so the output is identical.
+*One decoding step*, reading ព្រះរាជាណាចក្រកម្ពុជា (“Kingdom of Cambodia”) one character cluster per token. The head guesses 4 tokens at once. The decoder checks all of them in one parallel pass; here its own choice agrees with p1 and p2 and differs at p3 (ក against ក្រ). The two matches are kept and the decoder's ក្រ is added: 3 tokens from 2 passes, where greedy decoding needs 3. Every kept token is one greedy decoding would write, so the output is identical.
 
 On KHOB (325 lines, greedy decoding):
 

@@ -103,10 +103,10 @@ Netra-OCR was trained entirely on synthetic data: **1.3M** text-line images, of 
 **Blockwise parallel decoding.** The optional `blockwise` decoder ([Stern et al., 2018](https://arxiv.org/abs/1811.03115)) adds a small proposal head to the frozen decoder, so one step can write several tokens instead of one.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/netra-ai-lab/Netra-OCR/master/assets/blockwise_decoding.png" width="900" alt="One step of blockwise parallel decoding: the head proposes 4 tokens, the decoder checks them in one pass, and the matching prefix plus the decoder's own next token are kept" />
+  <img src="https://raw.githubusercontent.com/netra-ai-lab/Netra-OCR/master/assets/blockwise_decoding.png" width="900" alt="One step of blockwise parallel decoding: the head guesses 4 tokens, the decoder's own choice matches the first two and differs at the third, so the two matches plus the decoder's token are kept" />
 </p>
 
-<p><em>Figure 3: One step of blockwise parallel decoding, reading ព្រះរាជាណាចក្រកម្ពុជា (“Kingdom of Cambodia”) one character cluster per token. (1) The proposal head guesses the next 4 tokens at once. (2) The decoder reads them in one parallel pass and gives its own greedy choice at each position. (3) Proposals are kept up to the first disagreement, and the decoder's own token at that point is added. Every kept token is one greedy decoding would also write, so the output is identical.</em></p>
+<p><em>Figure 3: One step of blockwise parallel decoding, reading ព្រះរាជាណាចក្រកម្ពុជា (“Kingdom of Cambodia”) one character cluster per token. (1) The proposal head guesses the next 4 tokens at once. (2) The decoder reads all the guesses in one parallel pass and gives its own greedy choice under each one; here it agrees with p1 and p2 and differs at p3 (ក against ក្រ). (3) The matching guesses are kept, the decoder's own ក្រ is added, and the rest is discarded: 3 tokens from 2 passes, where greedy decoding needs 3. Every kept token is one greedy decoding would also write, so the output is identical.</em></p>
 
 Speed on KHOB (325 lines), same model, greedy decoding:
 
