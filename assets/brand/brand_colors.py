@@ -17,6 +17,7 @@ COLOR = {name: spec["hex"] for name, spec in _TOKENS["color"].items() if "hex" i
 CHART = _TOKENS["chart"]
 OURS = CHART["ours"]
 BASELINES = CHART["baselines"]
+NEUTRALS = CHART["neutrals"]
 
 
 def apply(font_dir=None):

@@ -100,11 +100,22 @@ Netra-OCR was trained entirely on synthetic data: **1.3M** text-line images, of 
 
 **Across chunks.** The tokens of all chunks are concatenated with a second, line-level positional embedding. A **bidirectional LSTM** then carries context across each seam, so a character split between two chunks reads the same from both sides. [docs/ARCHITECTURE.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/ARCHITECTURE.md) explains each module.
 
+**Blockwise parallel decoding.** The optional `blockwise` decoder ([Stern et al., 2018](https://arxiv.org/abs/1811.03115)) adds a small proposal head to the frozen decoder, so one step can write several tokens instead of one.
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/netra-ai-lab/Netra-OCR/master/assets/decoding_speed.png" width="560" alt="Recognition time per text line on KHOB: 17.60 ms with greedy decoding, 11.35 ms with blockwise parallel decoding" />
+  <img src="https://raw.githubusercontent.com/netra-ai-lab/Netra-OCR/master/assets/blockwise_decoding.png" width="900" alt="One step of blockwise parallel decoding: the head proposes 4 tokens, the decoder checks them in one pass, and the matching prefix plus the decoder's own next token are kept" />
 </p>
 
-<p><em>Figure 3: Recognition time per text line on KHOB (325 lines), greedy against blockwise parallel decoding. The blockwise decoder proposes up to 4 tokens per step and verifies them against the same decoder, accepting 2.7 on average. Its output is identical, character for character ([docs/RESULTS.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RESULTS.md)).</em></p>
+<p><em>Figure 3: One step of blockwise parallel decoding. (1) The proposal head guesses the next 4 tokens at once. (2) The decoder reads them in one parallel pass and gives its own greedy choice at each position. (3) Proposals are kept up to the first disagreement, and the decoder's own token at that point is added. Every kept token is one greedy decoding would also write, so the output is identical.</em></p>
+
+Speed on KHOB (325 lines), same model, greedy decoding:
+
+| Decoder | CER | Exact match | ms per line | Lines per second | Tokens per step | Speed-up |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Autoregressive | 1.17 | 84.9 | 17.60 | 56.8 | 1 | 1.00× |
+| **Blockwise, 4 proposed** | **1.17** | **84.9** | **11.35** | **88.1** | **2.7** | **1.55×** |
+
+The decoder runs about 2.7× fewer passes; the end-to-end gain is smaller because the encoder costs the same ([docs/RESULTS.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RESULTS.md)).
 
 | Feature | Detail |
 | :--- | :--- |

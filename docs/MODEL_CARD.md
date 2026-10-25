@@ -69,16 +69,20 @@ Character error rate in %, on single text-line crops. Lower is better.
 
 ### Decoders
 
-The two released checkpoints share one model and differ only in decoding. On KHOB (325 lines, greedy decoding):
+The two released checkpoints share one model and differ only in decoding. The `blockwise` checkpoint adds a small proposal head ([Stern et al. 2018](https://arxiv.org/abs/1811.03115)) to the frozen model:
 
-| Decoder | CER | WER | Exact match | ms per line |
-|---|---|---|---|---|
-| `ar` (greedy) | 1.17% | 17.11% | 84.92% | 17.60 |
-| `blockwise` | 1.17% | 17.11% | 84.92% | 11.35 |
+<p align="center"><img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/blockwise_decoding.png" width="90%" alt="One step of blockwise parallel decoding: propose 4 tokens, verify them in one pass, keep the matching prefix plus the decoder's own next token"></p>
 
-<p align="center"><img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/decoding_speed.png" width="60%" alt="Recognition time per text line on KHOB: 17.60 ms greedy, 11.35 ms blockwise"></p>
+*One decoding step.* The head proposes 4 tokens, the model checks them in one parallel pass, and the proposals are kept up to the first disagreement, plus the model's own token there. Every kept token is one greedy decoding would write, so the output is identical.
 
-*Recognition time per line.* The blockwise decoder accepts 2.7 of up to 4 proposed tokens per step on average, and is 1.55× faster with identical output. Beam search (`beam_width=3`) lowers KHOB CER to 0.96% at a higher cost per line.
+On KHOB (325 lines, greedy decoding):
+
+| Decoder | CER | WER | Exact match | ms per line | Tokens per step | Speed-up |
+|---|---|---|---|---|---|---|
+| `ar` (greedy) | 1.17% | 17.11% | 84.92% | 17.60 | 1 | 1.00× |
+| `blockwise` | 1.17% | 17.11% | 84.92% | 11.35 | 2.7 | 1.55× |
+
+Beam search (`beam_width=3`) lowers KHOB CER to 0.96% at a higher cost per line.
 
 ## Architecture
 
