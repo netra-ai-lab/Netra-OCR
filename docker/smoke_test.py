@@ -1,8 +1,7 @@
 """Build-time check that the (pruned) image still runs everything the app does.
 
-The Dockerfile uninstalls packages that netra-ocr's dependencies declare but
-inference never imports (plotting, dataframes, training augmentation). This
-script exercises every code path the server can reach -- all three line
+The Dockerfile swaps OpenCV for its headless build and strips test suites.
+This script exercises every code path the server can reach -- all three line
 detectors, layout analysis, both decoders, PDF input, every export format and
 the web app itself -- so a prune that goes too far fails the build instead of
 the first upload.

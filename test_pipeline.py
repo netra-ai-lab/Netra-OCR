@@ -7,7 +7,6 @@ pipeline = KhmerOCRPipeline(detector="yolo", conf=0.4)
 result_text = pipeline.process_image(
     image_path="./test_images/test_image.jpg",
     output_path="document.docx",   # Extension determines format
-    beam_width=1,
     batch_size=16,
     save_debug=False,
 )

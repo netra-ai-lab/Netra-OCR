@@ -127,7 +127,7 @@ Beam search (`beam_width=3`) lowers KHOB CER to 0.96% at a higher cost per line.
 ## Usage
 
 ```bash
-pip install netra-ocr
+pip install "netra-ocr[cpu]"
 ```
 
 ```python
@@ -135,16 +135,15 @@ from netra_ocr.recognition import recognize, recognize_batch
 
 text = recognize("line_crop.png")                         # one text line: a path or a PIL.Image
 texts = recognize_batch(line_crops, batch_size=8)          # many lines; the model stays loaded
-text = recognize("line_crop.png", decoder="blockwise")     # same text, 1.55x faster
-text = recognize("line_crop.png", beam_width=3)            # slower, slightly more accurate
+text = recognize("line_crop.png", decoder="blockwise")     # same text
 ```
 
-The checkpoint downloads from this repository on first use and is cached.
+The package runs ONNX exports of these checkpoints on [Netra Runtime](https://github.com/netra-ai-lab/Netra-Runtime), from [Netra-Lab/Netra-OCR](https://huggingface.co/Netra-Lab/Netra-OCR); they download on first use and are cached. Beam search needs the PyTorch checkpoints here.
 
 **Whole documents.**
 
 ```bash
-pip install "netra-ocr[yolo,layout,pdf,docx]"
+pip install "netra-ocr[cpu,pdf,docx]"
 ```
 
 ```python
@@ -188,7 +187,7 @@ The cluster model's vocabulary (`char2idx_cluster.json`) ships inside the `netra
 
 - **Code and weights:** MIT.
 - **Training data:** part of it, [KhmerSynthetic1M](https://huggingface.co/datasets/SoyVitou/KhmerSynthetic1M), is licensed by its authors for research and academic use only. Check its terms before any commercial use of this model.
-- **The app:** the `netra-ocr` package's YOLO detector and layout analysis use AGPL-3.0 components (`ultralytics`, `doclayout-yolo`); see [THIRD_PARTY_LICENSES.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/THIRD_PARTY_LICENSES.md). The recognizer alone doesn't.
+- **The app:** the `netra-ocr` package's default YOLO line detector uses AGPL-3.0 weights; see [THIRD_PARTY_LICENSES.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/THIRD_PARTY_LICENSES.md). The recognizer alone doesn't.
 
 ## References
 

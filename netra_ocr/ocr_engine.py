@@ -2,6 +2,9 @@
 """
 Khmer OCR Pipeline — pluggable text detector, plain-text output.
 
+The YOLO detector, layout model and recognizer run on Netra Runtime (ONNX
+Runtime); netra_ocr/models.py says where their bundles come from.
+
 Detection
 ---------
 Detectors are registered in netra_ocr/detectors/__init__.py and selected by name.
@@ -44,7 +47,7 @@ class KhmerOCRPipeline:
         """
         layout: run DocLayout-YOLO page layout analysis (titles, paragraphs,
             tables, figures, headers/footers, reading order) on top of line
-            detection. Needs the 'layout' extra. Only affects
+            detection. Only affects
             ``process_document`` and, when True, ``process_image``.
         """
         print(f"Initializing detector: {detector}")
@@ -63,7 +66,7 @@ class KhmerOCRPipeline:
 
     # ── structured documents (layout-aware, multi-page) ────────────────
     def analyze_page(self, img_bgr, page_index: int = 0, assets: AssetStore | None = None,
-                     beam_width: int = 1, batch_size: int = 8,
+                     batch_size: int = 16,
                      include_headers_footers: bool = True) -> tuple[dict, list]:
         """Detect, recognize and structure one page (BGR array).
 
@@ -83,19 +86,19 @@ class KhmerOCRPipeline:
         logo_boxes = [tuple(int(v) for v in dl.bbox) for dl in detected if dl.label == "logo"]
 
         if self.layout_analyzer is None:
-            texts = self._recognize(line_crops, beam_width, batch_size)
+            texts = self._recognize(line_crops, batch_size)
             return page, structure.plain_blocks(page_index, img_bgr, line_boxes, texts, logo_boxes, assets)
 
         regions = self.layout_analyzer.analyze(img_bgr)
         units = structure.plan_page((w, h), line_boxes, logo_boxes, regions, include_headers_footers,
                                     ink=structure.ink_mask(img_bgr))
         whole_crops = structure.region_crops(img_bgr, units)
-        texts = self._recognize(line_crops + whole_crops, beam_width, batch_size)
+        texts = self._recognize(line_crops + whole_crops, batch_size)
         line_texts, whole_texts = texts[:len(line_boxes)], texts[len(line_boxes):]
         blocks = structure.build_blocks(page_index, img_bgr, units, line_boxes, line_texts, whole_texts, assets)
         return page, blocks
 
-    def process_document(self, source, beam_width: int = 1, batch_size: int = 8,
+    def process_document(self, source, batch_size: int = 16,
                          include_headers_footers: bool = True, max_pages: int | None = None,
                          progress: Callable[[int, int], None] | None = None) -> Document:
         """Run OCR over every page of an image, multi-page TIFF or PDF.
@@ -109,7 +112,7 @@ class KhmerOCRPipeline:
             total = min(total, max_pages)
         doc = Document()
         for i, img_bgr in enumerate(iter_pages(data, max_pages=total)):
-            page, blocks = self.analyze_page(img_bgr, i, doc.assets, beam_width, batch_size,
+            page, blocks = self.analyze_page(img_bgr, i, doc.assets, batch_size,
                                              include_headers_footers)
             doc.pages.append(page)
             doc.blocks.extend(blocks)
@@ -117,18 +120,15 @@ class KhmerOCRPipeline:
                 progress(i + 1, total)
         return doc
 
-    def _recognize(self, crops, beam_width, batch_size):
-        if not crops:
-            return []
-        return recognize_batch(crops, beam_width=beam_width, batch_size=batch_size, decoder=self.decoder)
+    def _recognize(self, crops, batch_size):
+        return recognize_batch(crops, batch_size=batch_size, decoder=self.decoder)
 
     def process_image(
         self,
         image_path: str,
         output_path: str | None = None,
         save_debug: bool = False,
-        beam_width: int = 1,
-        batch_size: int = 8,
+        batch_size: int = 16,
         return_segments: bool = False,
     ):
         """Run detection + recognition on an image.
@@ -142,8 +142,7 @@ class KhmerOCRPipeline:
             raise FileNotFoundError(f"Image not found: {image_path}")
 
         if self.layout_analyzer is not None:
-            return self._process_image_structured(image_path, output_path, beam_width,
-                                                  batch_size, return_segments)
+            return self._process_image_structured(image_path, output_path, batch_size, return_segments)
 
         img = Image.open(image_path).convert("RGB")
         image_size = img.size
@@ -162,8 +161,7 @@ class KhmerOCRPipeline:
 
         # STEP 3: RECOGNITION (text only)
         ocr_queue = [dl.crop for dl in text_lines]
-        recognitions = recognize_batch(ocr_queue, beam_width=beam_width, batch_size=batch_size, decoder=self.decoder) \
-                       if ocr_queue else []
+        recognitions = self._recognize(ocr_queue, batch_size)
 
         # STEP 4: BUILD SEGMENTS (merged, sorted top-to-bottom)
         segments = []
@@ -195,9 +193,9 @@ class KhmerOCRPipeline:
 
         return final_text
 
-    def _process_image_structured(self, image_path, output_path, beam_width, batch_size, return_segments):
+    def _process_image_structured(self, image_path, output_path, batch_size, return_segments):
         from .exporters import save_document
-        doc = self.process_document(image_path, beam_width=beam_width, batch_size=batch_size, max_pages=1)
+        doc = self.process_document(image_path, batch_size=batch_size, max_pages=1)
         if output_path:
             save_document(doc, output_path)
         if not return_segments:
@@ -259,8 +257,7 @@ def main():
                         help="Pixels to pad each bbox on all sides (default 4). Only applies to --detector yolo.")
     parser.add_argument("--decoder",    default="ar", choices=["ar", "blockwise"],
                         help="Recognition decoder: ar (default) or blockwise (Stern et al. 2018 -- same output, usually faster).")
-    parser.add_argument("--beam",       type=int, default=1)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--debug",      action="store_true")
     args = parser.parse_args()
 
@@ -271,7 +268,7 @@ def main():
             is_pdf = sniff_kind(fh.read(16)) == "pdf"
         if args.layout or is_pdf:
             from .exporters import save_document
-            doc = pipeline.process_document(args.image, beam_width=args.beam, batch_size=args.batch_size)
+            doc = pipeline.process_document(args.image, batch_size=args.batch_size)
             path = save_document(doc, args.output)
             print(f"  Saved {os.path.splitext(path)[1]} output -> {path}")
             return
@@ -279,7 +276,6 @@ def main():
             image_path  = args.image,
             output_path = args.output,
             save_debug  = args.debug,
-            beam_width  = args.beam,
             batch_size  = args.batch_size,
         )
     except Exception as exc:

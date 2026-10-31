@@ -1,26 +1,12 @@
-"""DocLayout-YOLO page layout analyzer (https://github.com/opendatalab/DocLayout-YOLO)."""
+"""DocLayout-YOLO page layout analyzer (https://github.com/opendatalab/DocLayout-YOLO),
+on Netra Runtime."""
 
-import logging
-import os
 from typing import List
 
+import cv2
 import numpy as np
 
 from .base import BaseLayoutAnalyzer, LayoutRegion, area, intersection
-
-logger = logging.getLogger(__name__)
-
-DEFAULT_REPO = "juliozhao/DocLayout-YOLO-DocStructBench"
-DEFAULT_FILENAME = "doclayout_yolo_docstructbench_imgsz1024.pt"
-
-
-def default_weights_path() -> str:
-    """Resolve the DocLayout-YOLO weights (NETRA_LAYOUT_WEIGHTS, else the HF Hub cache)."""
-    override = os.environ.get("NETRA_LAYOUT_WEIGHTS")
-    if override:
-        return override
-    from huggingface_hub import hf_hub_download
-    return hf_hub_download(repo_id=DEFAULT_REPO, filename=DEFAULT_FILENAME)
 
 
 def dedupe_regions(regions: List[LayoutRegion], iou_threshold: float = 0.6,
@@ -55,34 +41,28 @@ def dedupe_regions(regions: List[LayoutRegion], iou_threshold: float = 0.6,
 
 
 class DocLayoutYoloAnalyzer(BaseLayoutAnalyzer):
-    def __init__(self, weights: str | None = None, conf: float = 0.2,
-                 imgsz: int = 1024, device: str | None = None):
-        try:
-            from doclayout_yolo import YOLOv10
-        except ImportError as e:
-            raise ImportError(
-                "Layout analysis requires the 'layout' extra. Install it with: "
-                "pip install \"netra-ocr[layout]\""
-            ) from e
-        weights = weights or default_weights_path()
-        logger.info("Loading DocLayout-YOLO weights: %s", weights)
-        self._model = YOLOv10(weights)
-        self._names = self._model.names
+    """``bundle``: a bundle folder or ``hf://`` source; default: the ``layout``
+    bundle of ``netra_ocr.models`` (DocStructBench, 1024 px)."""
+
+    def __init__(self, bundle: str | None = None, conf: float = 0.2):
+        from .. import models
+        if bundle is None:
+            self._model = models.load("layout")
+        else:
+            import netra_runtime
+            self._model = netra_runtime.load(bundle, device=models.device())
         self._conf = conf
-        self._imgsz = imgsz
-        self._device = device or os.environ.get("NETRA_DEVICE") or None
+
+    def _predict(self, img_bgr: np.ndarray):
+        """Raw model output: ``[(x1 y1 x2 y2, class name, score)]`` in image pixels."""
+        found = self._model(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), conf=self._conf)
+        return [(d.box, d.label, d.score) for d in found]
 
     def analyze(self, img_bgr: np.ndarray) -> List[LayoutRegion]:
         h, w = img_bgr.shape[:2]
-        kwargs = {"imgsz": self._imgsz, "conf": self._conf, "verbose": False}
-        if self._device:
-            kwargs["device"] = self._device
-        result = self._model.predict(img_bgr, **kwargs)[0]
         regions = []
-        for box, cls_id, score in zip(result.boxes.xyxy.cpu().numpy(),
-                                      result.boxes.cls.cpu().numpy(),
-                                      result.boxes.conf.cpu().numpy()):
+        for box, label, score in self._predict(img_bgr):
             x1, y1, x2, y2 = (max(0, int(box[0])), max(0, int(box[1])),
                               min(w, int(box[2])), min(h, int(box[3])))
-            regions.append(LayoutRegion(self._names[int(cls_id)], (x1, y1, x2, y2), float(score)))
+            regions.append(LayoutRegion(label, (x1, y1, x2, y2), score))
         return dedupe_regions(regions)

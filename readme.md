@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/netra-ai-lab/Netra-OCR"><b>GitHub</b></a> |
   <a href="https://github.com/netra-ai-lab/Netra-OCR/pkgs/container/netra-ocr"><b>Docker Image</b></a> |
-  <a href="https://huggingface.co/Darayut/khmer-text-recognition"><b>Model Download</b></a> |
+  <a href="https://huggingface.co/Netra-Lab/Netra-OCR"><b>Model Download</b></a> |
   <a href="https://huggingface.co/collections/Darayut/khmer-text-synthetic"><b>Dataset Download</b></a> |
   <a href="https://huggingface.co/spaces/Darayut/Khmer-Text-Recognition"><b>Inference Space</b></a> |
   <a href="https://github.com/netra-ai-lab/Netra-OCR/blob/master/Paper/A%20Squeeze-and-Excitation%20Transformer%20Network%20for%20Khmer%20Optical%20Character%20Recognition.pdf"><b>Paper</b></a>
@@ -184,9 +184,9 @@ docker run -d --name netra-ocr -p 8000:8000 -v netra-data:/data ghcr.io/netra-ai
 | :--- | :--- |
 | Platforms | Windows and Linux PCs (x86-64) and ARM64, including Apple Silicon Macs |
 | GPU | Not needed; the image is CPU-only |
-| Download | About 660 MB (1.7 GB on disk), every model included |
-| Speed | 1.4–3.2 s per page on a desktop CPU; longer on a laptop |
-| Memory | About 1.7 GB at peak for a 10-page PDF |
+| Download | About 520 MB (1.6 GB on disk), every model included |
+| Speed | About 1.1 s per page on a desktop CPU (0.8–1.7 s); longer on a laptop |
+| Memory | About 0.4 GB with the models loaded; up to 2.3 GB while reading a 10-page PDF |
 | Internet | Not needed after the download. Files never leave your computer. |
 | Input | JPG, PNG, TIFF, BMP, WebP or PDF; up to 50 MB and 100 pages by default |
 | Output | An editable document, exported as Word, HTML, Markdown, JSON or plain text |
@@ -194,22 +194,23 @@ docker run -d --name netra-ocr -p 8000:8000 -v netra-data:/data ghcr.io/netra-ai
 ## 6. Install
 
 ```bash
-pip install netra-ocr
+pip install "netra-ocr[cpu]"      # or "netra-ocr[gpu]" for an NVIDIA GPU
 # or, from a checkout:  pip install -e ".[full]"
 ```
 
 | Extra | Adds |
 | --- | --- |
-| *(none)* | The recognizer and the `legacy` detector (classic computer vision, no extra dependencies) |
-| `yolo` | The YOLO text-line and logo detector (the default detector; its weights ship with the package) |
+| `cpu` | ONNX Runtime for the CPU. Pick this or `gpu`: every model needs one of them |
+| `gpu` | ONNX Runtime for NVIDIA GPUs (CUDA), with the CPU as fallback. Don't install it beside `cpu` |
+| *(always)* | The recognizer, the YOLO text-line and logo detector, layout analysis and the `legacy` detector |
 | `tesseract` | The Tesseract detector; also needs the system Tesseract binary |
 | `docx` | Word output |
-| `layout` | Page layout analysis with DocLayout-YOLO |
 | `pdf` | PDF input |
-| `server` | The web app and REST API (`netra_ocr serve`), with `yolo`, `tesseract`, `layout`, `pdf` and `docx` |
-| `full` | Everything above |
+| `server` | The web app and REST API (`netra_ocr serve`), with `tesseract`, `pdf` and `docx` |
+| `full` | Everything above, on the CPU |
+| `research` | PyTorch, Ultralytics and DocLayout-YOLO, for training and exporting models. The app never needs it |
 
-The first run downloads the recognition weights (about 77 MB) from [Hugging Face](https://huggingface.co/Darayut/khmer-text-recognition) and caches them under `~/.cache/huggingface` (`HF_HOME`). The CPU is enough, and CUDA is used when available.
+Every model runs on [Netra Runtime](https://github.com/netra-ai-lab/Netra-Runtime) (ONNX Runtime), which pip installs for you; PyTorch isn't needed. Each model downloads from [Hugging Face](https://huggingface.co/Netra-Lab/Netra-OCR) the first time it's used, only the files your device needs, and is cached under `~/.cache/huggingface` (`HF_HOME`). A GPU is used when the `gpu` extra is installed; `NETRA_DEVICE=cpu` forces the CPU.
 
 ## 7. Usage
 
@@ -218,9 +219,8 @@ The first run downloads the recognition weights (about 77 MB) from [Hugging Face
 ```python
 from netra_ocr.recognition import recognize, recognize_batch
 
-text = recognize("line_crop.png", beam_width=3)                    # one crop
-texts = recognize_batch(my_line_crops, beam_width=1, batch_size=8)  # many crops, model stays loaded
-text = recognize("line_crop.png", decoder="blockwise")             # same text, 1.55x faster
+text = recognize("line_crop.png")                              # one crop
+texts = recognize_batch(my_line_crops, batch_size=16)          # many crops, model stays loaded
 ```
 
 **Python, a whole page.** `KhmerOCRPipeline` detects the lines, reads them and writes the result; the output file's extension picks the format.
@@ -244,7 +244,7 @@ netra_ocr --image scan.jpg --output result.txt --detector legacy  # no extras ne
 **Web app and REST API.** The Docker image above, or without Docker:
 
 ```bash
-pip install "netra-ocr[server]"
+pip install "netra-ocr[server,cpu]"
 netra_ocr serve                                                    # http://localhost:8000, API docs at /docs
 curl -F file=@scan.jpg http://localhost:8000/v1/ocr               # returns the finished document
 ```
@@ -268,7 +268,7 @@ curl -F file=@scan.jpg http://localhost:8000/v1/ocr               # returns the 
 ## 9. Licensing
 
 Netra-OCR's code is released under the MIT License (see [LICENSE](https://github.com/netra-ai-lab/Netra-OCR/blob/master/LICENSE)).
-- **AGPL-3.0 extras:** `ultralytics` (the YOLO detector) and `doclayout-yolo` with its weights (layout analysis) are AGPL-3.0. They are installed by the `yolo`, `layout` and `server` extras and are part of the Docker image. Read [THIRD_PARTY_LICENSES.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/THIRD_PARTY_LICENSES.md) before redistributing the image or running a modified version as a public service. The recognizer alone and the `legacy` detector use no AGPL code.
+- **AGPL-3.0 model:** the YOLO text-line detector's weights (`lines/`) were trained with Ultralytics YOLO and are AGPL-3.0. They're used by the default `yolo` detector and are part of the Docker image. Read [THIRD_PARTY_LICENSES.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/THIRD_PARTY_LICENSES.md) before redistributing the image or running a modified version as a public service. The app runs no AGPL code; `ultralytics` and `doclayout-yolo` are only in the `research` extra. The recognizer, the layout model (Apache-2.0) and the `legacy` and `tesseract` detectors carry no AGPL terms.
 - **Training data:** the recognition weights were trained partly on [SoyVitou/KhmerSynthetic1M](https://huggingface.co/datasets/SoyVitou/KhmerSynthetic1M), which is licensed for research and academic use only. Check that licence before any commercial use of the weights.
 - **Fonts:** Kantumruy Pro, used in the web app, is under the SIL Open Font License 1.1.
 

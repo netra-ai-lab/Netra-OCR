@@ -22,7 +22,6 @@ pipeline = KhmerOCRPipeline()
 text = pipeline.process_image(
     image_path="./assets/khmer_document_4.jpg", 
     padding=5, 
-    beam_width=1,
     output_path="khmer_document_4.txt",
 )
 
