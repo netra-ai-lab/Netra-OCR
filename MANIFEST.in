@@ -2,7 +2,7 @@ include readme.md
 include LICENSE
 include requirements.txt
 
-# No model weights: the models are Netra Runtime bundles downloaded on first
+# No model weights: the models are ONNX model folders downloaded on first
 # use (see netra_ocr/models.py).
 recursive-include netra_ocr/server/static *.html *.css *.svg *.js *.woff2
 

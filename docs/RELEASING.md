@@ -26,13 +26,10 @@ publishes it whenever a version tag is pushed.
 
 ## Each release
 
-0. **If the models or the runtime changed:** publish them first, because the
-   package and the image download them at install/build time.
-   - Models: upload the bundle folders to the Hugging Face repo
-     `Netra-Lab/Netra-OCR` (card source: `docs/RUNTIME_MODEL_CARD.md`).
-   - Runtime: release `netra-runtime` from the Netra-Runtime repo
-     (`uv build && uv publish`), then raise the `netra-runtime>=` floor in
-     `pyproject.toml` and the `NETRA_RUNTIME` default in `docker/Dockerfile`.
+0. **If the models changed:** upload the model folders to the Hugging Face
+   repo `Netra-Lab/Netra-OCR` first (card source:
+   `docs/RUNTIME_MODEL_CARD.md`), because the package and the image download
+   them at run/build time. The export commands are in `training/README.md`.
 1. Bump `version` in `pyproject.toml` (the app shows it in the footer and at
    `/v1/info`).
 2. Commit and push to `master`.

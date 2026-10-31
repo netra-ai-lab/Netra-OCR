@@ -1,5 +1,5 @@
 """DocLayout-YOLO page layout analyzer (https://github.com/opendatalab/DocLayout-YOLO),
-on Netra Runtime."""
+on ONNX Runtime."""
 
 from typing import List
 
@@ -41,16 +41,16 @@ def dedupe_regions(regions: List[LayoutRegion], iou_threshold: float = 0.6,
 
 
 class DocLayoutYoloAnalyzer(BaseLayoutAnalyzer):
-    """``bundle``: a bundle folder or ``hf://`` source; default: the ``layout``
-    bundle of ``netra_ocr.models`` (DocStructBench, 1024 px)."""
+    """``bundle``: a model folder or ``hf://`` source; default: the ``layout``
+    model of ``netra_ocr.models`` (DocStructBench, 1024 px)."""
 
     def __init__(self, bundle: str | None = None, conf: float = 0.2):
         from .. import models
         if bundle is None:
             self._model = models.load("layout")
         else:
-            import netra_runtime
-            self._model = netra_runtime.load(bundle, device=models.device())
+            from ..inference import Detector
+            self._model = Detector(bundle, device=models.device())
         self._conf = conf
 
     def _predict(self, img_bgr: np.ndarray):

@@ -2,8 +2,8 @@
 """
 Khmer OCR Pipeline — pluggable text detector, plain-text output.
 
-The YOLO detector, layout model and recognizer run on Netra Runtime (ONNX
-Runtime); netra_ocr/models.py says where their bundles come from.
+The YOLO detector, layout model and recognizer run on ONNX Runtime
+(netra_ocr/inference); netra_ocr/models.py says where they come from.
 
 Detection
 ---------

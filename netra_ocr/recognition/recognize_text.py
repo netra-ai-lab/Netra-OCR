@@ -1,10 +1,9 @@
-"""Text-line recognition on Netra Runtime (no PyTorch).
+"""Text-line recognition on ONNX Runtime (no PyTorch).
 
-The model is the ``recognition`` (decoder="ar") or ``recognition-blockwise``
-(decoder="blockwise") bundle of ``netra_ocr.models``, downloaded once from
-Hugging Face. Both decode greedily and give the same text; blockwise proposes
-several tokens per decoder pass. The PyTorch model in this package is for
-training and export only (see scripts/export_runtime_bundle.py).
+The model is ``recognition`` (decoder="ar") or ``recognition-blockwise``
+(decoder="blockwise") from ``netra_ocr.models``, downloaded once from Hugging
+Face. Both decode greedily and give the same text; blockwise proposes several
+tokens per decoder pass. The model code itself is in ``netra_ocr.inference``.
 """
 
 import argparse
@@ -14,8 +13,8 @@ from .. import models
 
 def _recognizer(decoder: str, bundle: str | None):
     if bundle is not None:
-        import netra_runtime
-        return netra_runtime.load(bundle, device=models.device())
+        from ..inference import Recognizer
+        return Recognizer(bundle, device=models.device())
     if decoder not in models.DECODERS:
         raise ValueError(f"Unknown decoder '{decoder}'. Available: {list(models.DECODERS)}")
     return models.load(decoder)
@@ -25,7 +24,7 @@ def recognize(image_input, decoder: str = "ar", bundle: str | None = None) -> st
     """Recognize one text-line image (a path, PIL Image or RGB array).
 
     decoder: "ar" (default) or "blockwise".
-    bundle: a recognizer bundle folder or ``hf://`` source, instead of the default.
+    bundle: a recognizer model folder or ``hf://`` source, instead of the default.
     """
     return _recognizer(decoder, bundle)(image_input).text
 
@@ -42,7 +41,7 @@ def main():
     parser = argparse.ArgumentParser(description="Recognize one Khmer/English text-line image")
     parser.add_argument("--image", required=True, help="Path to a text-line image")
     parser.add_argument("--decoder", default="ar", choices=list(models.DECODERS))
-    parser.add_argument("--bundle", default=None, help="Recognizer bundle folder or hf:// source (default: Netra-Lab/Netra-OCR)")
+    parser.add_argument("--bundle", default=None, help="Recognizer model folder or hf:// source (default: Netra-Lab/Netra-OCR)")
     parser.add_argument("--output", help="Save the text to this file")
     args = parser.parse_args()
 

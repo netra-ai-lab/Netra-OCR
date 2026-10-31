@@ -1,7 +1,7 @@
-"""Export a recognition checkpoint as a Netra Runtime bundle.
+"""Export a recognition checkpoint as a model folder the app runs.
 
-Produces a folder that ``netra_runtime.load()`` runs on CPU or GPU without
-torch or this package:
+Produces a folder that ``netra_ocr.inference.Recognizer`` runs on CPU or GPU
+without torch or this package:
 
     netra-model.json     manifest (task, components, file hashes)
     encoder.onnx         chunks -> per-layer cross-attention keys/values
@@ -12,7 +12,7 @@ The decoder is re-expressed with an explicit KV cache: the original
 ``TransformerDecoderWrapper`` re-runs the whole prefix every step, which is
 exactly what makes plain greedy decoding O(n^2). Weights are shared with the
 loaded model, so the math is the same; ``--check`` confirms it by comparing
-the runtime's output against ``OCRPredictor``'s greedy decode on a test set.
+the app's output against ``OCRPredictor``'s greedy decode on a test set.
 
 Attention is written out as matmul/softmax rather than
 ``nn.MultiheadAttention`` / ``scaled_dot_product_attention`` so the graphs only
@@ -20,7 +20,7 @@ use basic ONNX ops that every ONNX Runtime build (including onnxruntime-web)
 supports.
 
 Usage:
-    python -m netra_ocr_train.scripts.export_runtime_bundle \
+    python -m netra_ocr_train.scripts.export_recognizer \
         --model training/weights/khmerocr_cluster_ar.pth \
         --out bundles/recognition --check training/test_set/khob_eval
 """
@@ -156,7 +156,7 @@ class RecognizerDecoderStep(nn.Module):
             return outputs
         # Blockwise proposal heads (BlockwiseParallelWrapper): head j guesses
         # the token j + 2 positions after each input position. Only the ids
-        # leave the graph -- the runtime compares them, it never scores them.
+        # leave the graph -- the app compares them, it never scores them.
         B, n, D = x.shape
         aux = self.proposal_ffn(x).view(B, n, -1, D) + x.unsqueeze(2)
         return outputs + (dec.out_proj(aux).argmax(-1),)
@@ -216,8 +216,8 @@ def export(model_path: str, vocab_path: str, out_dir: Path, name: str, version: 
         )
 
     shutil.copyfile(vocab_path, out_dir / "vocab.json")
-    from netra_runtime.bundle import write_manifest
-    write_manifest(out_dir, {
+    from ..model_folder import write_config
+    write_config(out_dir, {
         "name": name,
         "version": version,
         "task": "text-recognition",
@@ -240,13 +240,13 @@ def export(model_path: str, vocab_path: str, out_dir: Path, name: str, version: 
 
 def check(model_path: str, vocab_path: str, bundle_dir: Path, test_dir: Path, devices: list[str],
           batch_size: int = 16):
-    """Runtime output (one line at a time, and batched) vs. the PyTorch greedy decoder."""
-    import netra_runtime
+    """App output (one line at a time, and batched) vs. the PyTorch greedy decoder."""
+    from netra_ocr.inference import Recognizer
     from PIL import Image
 
     images = [Image.open(p) for p in sorted((test_dir / "images").iterdir())]
     for device in devices:
-        recognizer = netra_runtime.load(bundle_dir, device=device)
+        recognizer = Recognizer(bundle_dir, device=device)
         torch_predictor = load_predictor(model_path, vocab_path, "cpu" if device == "cpu" else "cuda")
         for warm in images[:3]:
             torch_predictor.predict(warm, beam_width=1)
@@ -274,7 +274,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", required=True, help="Recognition checkpoint (.pth)")
     parser.add_argument("--vocab", default=DEFAULT_VOCAB_PATH)
-    parser.add_argument("--out", required=True, type=Path, help="Bundle output directory")
+    parser.add_argument("--out", required=True, type=Path, help="Model folder to write")
     parser.add_argument("--name", default="netra-ocr-recognition")
     parser.add_argument("--version", default="1.0.0")
     parser.add_argument("--check", type=Path, help="Test set ({images/,labels/}) for a parity check")
@@ -283,7 +283,7 @@ def main():
     args = parser.parse_args()
 
     export(args.model, args.vocab, args.out, args.name, args.version)
-    print(f"Bundle written to {args.out}: " + json.dumps(
+    print(f"Model folder written to {args.out}: " + json.dumps(
         {p.name: f"{p.stat().st_size / 1e6:.1f} MB" for p in sorted(args.out.iterdir())}))
     if args.check:
         check(args.model, args.vocab, args.out, args.check, args.devices, args.batch_size)

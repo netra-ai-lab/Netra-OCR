@@ -2,7 +2,8 @@
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-# Not published: install it from a checkout next to the app,
+# Not published: install it from a checkout next to the app (the export
+# parity checks run the exported models with netra_ocr.inference),
 #   pip install -e ".[cpu]" -e training
 [project]
 name = "netra-ocr-train"
@@ -16,7 +17,8 @@ dependencies = [
     "tqdm",
     "numpy",
     "pillow",
-    "netra-runtime[export]>=0.1.1",   # export_runtime_bundle, netra-runtime export-yolo
+    "onnx",          # exporting models for the app
+    "onnxscript",
     # ultralytics and doclayout-yolo are AGPL-3.0 -- see THIRD_PARTY_LICENSES.md.
     "ultralytics",
     "doclayout-yolo",

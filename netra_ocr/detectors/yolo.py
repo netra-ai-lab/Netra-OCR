@@ -6,10 +6,10 @@ from .refine import expand_boxes_horizontally
 
 
 class YoloDetector(BaseTextDetector):
-    """Netra OCR's YOLO line detector (class 0: text, class 1: logo), on Netra Runtime.
+    """Netra OCR's YOLO line detector (class 0: text, class 1: logo), on ONNX Runtime.
 
-    ``bundle``: a bundle folder or ``hf://`` source; default: the ``lines``
-    bundle of ``netra_ocr.models``. NMS IoU (0.7) is fixed in the bundle.
+    ``bundle``: a model folder or ``hf://`` source; default: the ``lines``
+    model of ``netra_ocr.models``. NMS IoU (0.7) is fixed in its settings.
     """
 
     def __init__(self, bundle: str | None = None, conf: float = 0.25, pad: int = 2,
@@ -18,8 +18,8 @@ class YoloDetector(BaseTextDetector):
         if bundle is None:
             self._model = models.load("lines")
         else:
-            import netra_runtime
-            self._model = netra_runtime.load(bundle, device=models.device())
+            from ..inference import Detector
+            self._model = Detector(bundle, device=models.device())
         self._conf = conf
         self._pad  = max(0, int(pad))
         self._refine = refine

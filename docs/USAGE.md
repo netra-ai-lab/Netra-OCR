@@ -13,7 +13,7 @@ text = recognize("line_crop.png")                                  # one crop, p
 texts = recognize_batch(my_line_crops, batch_size=16)              # many crops; the model stays loaded
 
 text = recognize("line_crop.png", decoder="blockwise")             # same text
-text = recognize("line_crop.png", bundle="bundles/my-recognizer")  # your own exported bundle
+text = recognize("line_crop.png", bundle="bundles/my-recognizer")  # your own exported model folder
 ```
 
 Command line, one image, no detection step:
@@ -85,14 +85,14 @@ The output format follows the file extension:
 
 Both decoders share one model and vocabulary, so switching never changes the text.
 
-| Decoder | Bundle | Notes |
+| Decoder | Model folder | Notes |
 | :--- | :--- | :--- |
 | `ar` (default) | `recognition/` | Greedy autoregressive decoding, one token per step, with a key/value cache so each step only runs the new token. |
-| `blockwise` | `recognition-blockwise/` | [Stern et al. 2018](https://arxiv.org/abs/1811.03115) blockwise parallel decoding: proposes several tokens per step (2.3 on average) and verifies them against the same decoder, so the output equals `ar`. With the cached decoder that isn't faster on a CPU or CUDA GPU, where steps are already cheap; it is faster in the browser on WebGPU. |
+| `blockwise` | `recognition-blockwise/` | [Stern et al. 2018](https://arxiv.org/abs/1811.03115) blockwise parallel decoding: proposes several tokens per step (2.3 on average) and verifies them against the same decoder, so the output equals `ar`. With the cached decoder, steps are already cheap, so it isn't faster on a CPU, a CUDA GPU or WebGPU. |
 
 ### Models and devices
 
-Every model runs on [Netra Runtime](https://github.com/netra-ai-lab/Netra-Runtime) (ONNX Runtime); PyTorch isn't needed. The models are Netra Runtime bundles in the Hugging Face repo [Netra-Lab/Netra-OCR](https://huggingface.co/Netra-Lab/Netra-OCR), one folder each (`lines/`, `layout/`, `recognition/`, `recognition-blockwise/`). Each one downloads the first time it's used, only the files the device needs, into the Hugging Face cache (`HF_HOME`, default `~/.cache/huggingface`); after that, `HF_HUB_OFFLINE=1` runs without a network.
+Every model runs on [ONNX Runtime](https://onnxruntime.ai), through Netra OCR's own `netra_ocr/inference/`; PyTorch isn't needed. The models are ONNX model folders in the Hugging Face repo [Netra-Lab/Netra-OCR](https://huggingface.co/Netra-Lab/Netra-OCR), one folder each (`lines/`, `layout/`, `recognition/`, `recognition-blockwise/`). Each one downloads the first time it's used, only the files the device needs, into the Hugging Face cache (`HF_HOME`, default `~/.cache/huggingface`); after that, `HF_HUB_OFFLINE=1` runs without a network.
 
 | Setting | Default | Meaning |
 | :--- | :--- | :--- |

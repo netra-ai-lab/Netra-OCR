@@ -8,8 +8,7 @@ example the Docker images) or **offer it as a network service**.
 | :--- | :--- | :--- | :--- |
 | Netra OCR text-line detector weights ([`lines/`](https://huggingface.co/Netra-Lab/Netra-OCR/tree/main/lines)) | Default `yolo` line and logo detector | AGPL-3.0 (trained with Ultralytics YOLO) | downloaded on first use; baked into Docker images |
 | [DocLayout-YOLO DocStructBench weights](https://huggingface.co/juliozhao/DocLayout-YOLO-DocStructBench) ([`layout/`](https://huggingface.co/Netra-Lab/Netra-OCR/tree/main/layout)) | Page layout analysis | Apache-2.0 (per its model card) | downloaded on first use; baked into Docker images |
-| [Netra Runtime](https://github.com/netra-ai-lab/Netra-Runtime) | Runs every model | MIT | core |
-| [ONNX Runtime](https://github.com/microsoft/onnxruntime) | Inference engine under Netra Runtime | MIT | `cpu` / `gpu` extras; Docker images |
+| [ONNX Runtime](https://github.com/microsoft/onnxruntime) | Runs every model (`netra_ocr/inference/`) | MIT | `cpu` / `gpu` extras; Docker images |
 | [pypdfium2](https://github.com/pypdfium2-team/pypdfium2) / PDFium | PDF rendering | Apache-2.0 / BSD-3-Clause | `pdf`, `server` extras |
 | [FastAPI](https://github.com/fastapi/fastapi), [Uvicorn](https://github.com/encode/uvicorn) | Web server | MIT / BSD-3-Clause | `server` extra |
 | [python-docx](https://github.com/python-openxml/python-docx) | Word export | MIT | `docx`, `server` extras |

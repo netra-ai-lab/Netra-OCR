@@ -209,7 +209,7 @@ pip install "netra-ocr[cpu]"      # or "netra-ocr[gpu]" for an NVIDIA GPU
 | `server` | The web app and REST API (`netra_ocr serve`), with `tesseract`, `pdf` and `docx` |
 | `full` | Everything above, on the CPU |
 
-Every model runs on [Netra Runtime](https://github.com/netra-ai-lab/Netra-Runtime) (ONNX Runtime), which pip installs for you; PyTorch isn't needed. Each model downloads from [Hugging Face](https://huggingface.co/Netra-Lab/Netra-OCR) the first time it's used, only the files your device needs, and is cached under `~/.cache/huggingface` (`HF_HOME`). A GPU is used when the `gpu` extra is installed; `NETRA_DEVICE=cpu` forces the CPU.
+Every model runs on [ONNX Runtime](https://onnxruntime.ai) (the `cpu` or `gpu` extra installs it); PyTorch isn't needed. Each model downloads from [Hugging Face](https://huggingface.co/Netra-Lab/Netra-OCR) the first time it's used, only the files your device needs, and is cached under `~/.cache/huggingface` (`HF_HOME`). A GPU is used when the `gpu` extra is installed; `NETRA_DEVICE=cpu` forces the CPU.
 
 ## 7. Usage
 
