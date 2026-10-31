@@ -13,18 +13,18 @@ Also spot-checks a handful of hand-picked mixed Khmer+English+digit strings
 at script-transition points.
 
 Usage:
-    python -m netra_ocr.recognition.scripts.validate_tokenizer \\
-        --corpus texts/khmer_corpus.txt \\
-        --base-vocab netra_ocr/recognition/char2idx_new.json \\
-        --cluster-vocab netra_ocr/recognition/char2idx_cluster.json
+    python -m netra_ocr_train.scripts.validate_tokenizer \\
+        --corpus training/texts/khmer_corpus.txt \\
+        --base-vocab training/netra_ocr_train/char2idx_new.json \\
+        --cluster-vocab training/netra_ocr_train/char2idx_cluster.json
 """
 
 import argparse
 import statistics
 from pathlib import Path
 
-from netra_ocr.recognition.cluster_tokenizer import ClusterTokenizer
-from netra_ocr.recognition.postprocess import clean_text
+from netra_ocr_train.cluster_tokenizer import ClusterTokenizer
+from netra_ocr_train.postprocess import clean_text
 
 SPOT_CHECKS = [
     "លេខ Passport123 P<KHM",
@@ -37,11 +37,11 @@ SPOT_CHECKS = [
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", type=Path, default=Path("texts/khmer_corpus.txt"))
+    parser.add_argument("--corpus", type=Path, default=Path("training/texts/khmer_corpus.txt"))
     parser.add_argument("--base-vocab", type=Path,
-                         default=Path("netra_ocr/recognition/char2idx_new.json"))
+                         default=Path("training/netra_ocr_train/char2idx_new.json"))
     parser.add_argument("--cluster-vocab", type=Path,
-                         default=Path("netra_ocr/recognition/char2idx_cluster.json"))
+                         default=Path("training/netra_ocr_train/char2idx_cluster.json"))
     parser.add_argument("--limit", type=int, default=None,
                          help="Only check the first N lines (default: all).")
     args = parser.parse_args()

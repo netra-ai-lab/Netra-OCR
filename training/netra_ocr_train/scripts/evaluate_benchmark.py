@@ -8,8 +8,8 @@ so neither side is unfairly penalized for cosmetic differences that aren't
 real transcription errors.
 
 Usage (current cluster-vocab AR model -- the defaults):
-    python -m netra_ocr.recognition.scripts.evaluate_benchmark \\
-        --local-dir test_set/khob_eval \\
+    python -m netra_ocr_train.scripts.evaluate_benchmark \\
+        --local-dir training/test_set/khob_eval \\
         --skip-blockwise \\
         --out-dir eval_out
 
@@ -18,8 +18,8 @@ The --ar-* defaults point at the cluster-vocab AR model now being trained
 isn't trained yet (Pending #3), so pass --skip-blockwise until an
 `init_blockwise_decoder.py`-produced checkpoint exists. To benchmark the
 original 176-vocab AR base instead, pass:
-    --ar-model netra_ocr/recognition/weight/khmerocr_epoch570.pth \\
-    --ar-vocab netra_ocr/recognition/char2idx_new.json
+    --ar-model training/weights/khmerocr_epoch570.pth \\
+    --ar-vocab training/netra_ocr_train/char2idx_new.json
 """
 
 import argparse
@@ -164,27 +164,27 @@ def main():
     parser.add_argument("--dataset", default="SoyVitou/KHOB-LEVEL-1",
                          help="HF dataset repo id (ignored if --local-dir is given)")
     parser.add_argument("--split", default="train")
-    parser.add_argument("--data-dir", default=".hf_cache",
+    parser.add_argument("--data-dir", default="training/.hf_cache",
                          help="HF cache dir local to the project (same convention as train.py)")
     parser.add_argument("--text-column", default="text")
     parser.add_argument("--local-dir", default=None,
                          help="Path to a local {images/, labels/} benchmark dir "
-                              "(e.g. test_set/khob_eval) -- takes precedence over --dataset")
+                              "(e.g. training/test_set/khob_eval) -- takes precedence over --dataset")
     parser.add_argument("--limit", type=int, default=None, help="Evaluate only the first N rows")
 
     # Defaults target the current cluster-vocab AR model (Pending #2). To
     # benchmark the original 176-vocab AR base instead, pass
     # --ar-model .../khmerocr_epoch570.pth --ar-vocab .../char2idx_new.json
-    parser.add_argument("--ar-model", default="netra_ocr/recognition/weight/khmerocr_se_ar_last.pth")
-    parser.add_argument("--ar-vocab", default="netra_ocr/recognition/char2idx_cluster.json")
+    parser.add_argument("--ar-model", default="training/weights/khmerocr_se_ar_last.pth")
+    parser.add_argument("--ar-vocab", default="training/netra_ocr_train/char2idx_cluster.json")
     parser.add_argument("--ar-beam-width", type=int, default=3)
 
     parser.add_argument("--blockwise-model", nargs="+",
-                         default=["netra_ocr/recognition/weight/khmerocr_se_blockwise_last.pth"],
+                         default=["training/weights/khmerocr_se_blockwise_last.pth"],
                          help="One or more blockwise checkpoints. block_size is auto-detected "
                               "from each checkpoint's meta; each is labeled blockwise_bs<N>. "
                               "Pass several to compare block sizes in one table (e.g. a 4/6/8/10 sweep).")
-    parser.add_argument("--blockwise-vocab", default="netra_ocr/recognition/char2idx_cluster.json")
+    parser.add_argument("--blockwise-vocab", default="training/netra_ocr_train/char2idx_cluster.json")
 
     parser.add_argument("--skip-ar", action="store_true")
     parser.add_argument("--skip-blockwise", action="store_true")

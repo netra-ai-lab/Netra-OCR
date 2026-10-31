@@ -208,7 +208,6 @@ pip install "netra-ocr[cpu]"      # or "netra-ocr[gpu]" for an NVIDIA GPU
 | `pdf` | PDF input |
 | `server` | The web app and REST API (`netra_ocr serve`), with `tesseract`, `pdf` and `docx` |
 | `full` | Everything above, on the CPU |
-| `research` | PyTorch, Ultralytics and DocLayout-YOLO, for training and exporting models. The app never needs it |
 
 Every model runs on [Netra Runtime](https://github.com/netra-ai-lab/Netra-Runtime) (ONNX Runtime), which pip installs for you; PyTorch isn't needed. Each model downloads from [Hugging Face](https://huggingface.co/Netra-Lab/Netra-OCR) the first time it's used, only the files your device needs, and is cached under `~/.cache/huggingface` (`HF_HOME`). A GPU is used when the `gpu` extra is installed; `NETRA_DEVICE=cpu` forces the CPU.
 
@@ -255,6 +254,7 @@ curl -F file=@scan.jpg http://localhost:8000/v1/ocr               # returns the 
 | [Architecture](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/ARCHITECTURE.md) | Each module in detail: chunking, the SE network, merging, the BiLSTM, decoding, tokenisation |
 | [Results](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RESULTS.md) | The full benchmark against Tesseract, Surya and the vision-language models; greedy against blockwise decoding |
 | [Releasing](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RELEASING.md) | Publishing to PyPI and the Docker registry |
+| [Training](https://github.com/netra-ai-lab/Netra-OCR/blob/master/training/README.md) | The research code, kept apart from the app: training, evaluation, and exporting a checkpoint to the model files the app runs |
 
 ## 8. Limitations
 
@@ -268,7 +268,7 @@ curl -F file=@scan.jpg http://localhost:8000/v1/ocr               # returns the 
 ## 9. Licensing
 
 Netra-OCR's code is released under the MIT License (see [LICENSE](https://github.com/netra-ai-lab/Netra-OCR/blob/master/LICENSE)).
-- **AGPL-3.0 model:** the YOLO text-line detector's weights (`lines/`) were trained with Ultralytics YOLO and are AGPL-3.0. They're used by the default `yolo` detector and are part of the Docker image. Read [THIRD_PARTY_LICENSES.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/THIRD_PARTY_LICENSES.md) before redistributing the image or running a modified version as a public service. The app runs no AGPL code; `ultralytics` and `doclayout-yolo` are only in the `research` extra. The recognizer, the layout model (Apache-2.0) and the `legacy` and `tesseract` detectors carry no AGPL terms.
+- **AGPL-3.0 model:** the YOLO text-line detector's weights (`lines/`) were trained with Ultralytics YOLO and are AGPL-3.0. They're used by the default `yolo` detector and are part of the Docker image. Read [THIRD_PARTY_LICENSES.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/THIRD_PARTY_LICENSES.md) before redistributing the image or running a modified version as a public service. The app runs no AGPL code; `ultralytics` and `doclayout-yolo` are used only by the training code in `training/`. The recognizer, the layout model (Apache-2.0) and the `legacy` and `tesseract` detectors carry no AGPL terms.
 - **Training data:** the recognition weights were trained partly on [SoyVitou/KhmerSynthetic1M](https://huggingface.co/datasets/SoyVitou/KhmerSynthetic1M), which is licensed for research and academic use only. Check that licence before any commercial use of the weights.
 - **Fonts:** Kantumruy Pro, used in the web app, is under the SIL Open Font License 1.1.
 

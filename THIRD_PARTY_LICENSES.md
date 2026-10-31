@@ -15,8 +15,8 @@ example the Docker images) or **offer it as a network service**.
 | [python-docx](https://github.com/python-openxml/python-docx) | Word export | MIT | `docx`, `server` extras |
 | [Tesseract](https://github.com/tesseract-ocr/tesseract) | Optional line detector | Apache-2.0 | `tesseract` extra; Docker images |
 | [Kantumruy Pro](https://fonts.google.com/specimen/Kantumruy+Pro) | UI typeface | SIL OFL 1.1 | bundled in the web UI |
-| [ultralytics](https://github.com/ultralytics/ultralytics), [doclayout-yolo](https://github.com/opendatalab/DocLayout-YOLO) | Training and exporting the detectors | AGPL-3.0 | `research` extra only |
-| [PyTorch](https://github.com/pytorch/pytorch) | Training and exporting | BSD-3-Clause | `research` extra only |
+| [ultralytics](https://github.com/ultralytics/ultralytics), [doclayout-yolo](https://github.com/opendatalab/DocLayout-YOLO) | Training and exporting the detectors | AGPL-3.0 | `training/` only |
+| [PyTorch](https://github.com/pytorch/pytorch) | Training and exporting | BSD-3-Clause | `training/` only |
 
 ## What AGPL-3.0 means here
 
@@ -26,8 +26,9 @@ with those weights, or let people use a modified version over a network, you
 must make the corresponding source available to them under the AGPL. Running
 it unmodified for yourself or your organisation carries no extra obligation.
 The recognizer on its own (`netra_ocr.recognition`), layout analysis, and the
-`legacy` and `tesseract` detectors don't involve AGPL terms. The `research`
-extra installs `ultralytics` and `doclayout-yolo`, which are AGPL-3.0 code.
+`legacy` and `tesseract` detectors don't involve AGPL terms. The training
+code in `training/` uses `ultralytics` and `doclayout-yolo`, which are
+AGPL-3.0 code; it isn't part of the package or the image.
 
 ## Training data
 

@@ -17,17 +17,17 @@ Supports both decoder architectures:
     scratch or the old semi-AR schemes this replaced.
 
 Usage:
-    python -m netra_ocr.recognition.scripts.init_blockwise_decoder \\
-        --src netra_ocr/recognition/weight/khmerocr_epoch570.pth \\
-        --dst netra_ocr/recognition/weight/khmerocr_blockwise_init.pth \\
-        --vocab netra_ocr/recognition/char2idx_new.json --block-size 4
+    python -m netra_ocr_train.scripts.init_blockwise_decoder \\
+        --src training/weights/khmerocr_epoch570.pth \\
+        --dst training/weights/khmerocr_blockwise_init.pth \\
+        --vocab training/netra_ocr_train/char2idx_new.json --block-size 4
 
-    python -m netra_ocr.recognition.scripts.train \\
-        --vocab netra_ocr/recognition/char2idx_new.json \\
-        --resume netra_ocr/recognition/weight/khmerocr_blockwise_init.pth \\
+    python -m netra_ocr_train.scripts.train \\
+        --vocab training/netra_ocr_train/char2idx_new.json \\
+        --resume training/weights/khmerocr_blockwise_init.pth \\
         --decoder-type blockwise --block-size 4 \\
         --epochs 20 --batch-size 32 --epoch-sample-size 50000 \\
-        --out-dir netra_ocr/recognition/weight
+        --out-dir training/netra_ocr_train/weight
 """
 
 import argparse
@@ -316,8 +316,8 @@ def train(args):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--vocab", default="netra_ocr/recognition/char2idx_cluster.json")
-    parser.add_argument("--data-dir", default=".hf_cache",
+    parser.add_argument("--vocab", default="training/netra_ocr_train/char2idx_cluster.json")
+    parser.add_argument("--data-dir", default="training/.hf_cache",
                          help="Hugging Face cache dir (datasets + hub downloads) local to the project")
     parser.add_argument("--resume", default=None, help="Checkpoint to warm-start/resume from")
     parser.add_argument("--model", choices=["se"], default="se")
@@ -338,7 +338,7 @@ def parse_args():
     parser.add_argument("--log-every", type=int, default=50)
     parser.add_argument("--log-file", default=None,
                          help="Path to write training logs to (default: <out-dir>/train.log)")
-    parser.add_argument("--out-dir", default="netra_ocr/recognition/weight")
+    parser.add_argument("--out-dir", default="training/weights")
     return parser.parse_args()
 
 

@@ -5,9 +5,9 @@ normalization/scoring as every other engine (ocr_eval_common.py).
 Must run under `.venv-unsloth`, as a plain script (not `-m`):
 
     source .venv-unsloth/bin/activate
-    python netra_ocr/recognition/scripts/evaluate_finetuned_vlm.py \\
-        --model qwen --lora netra_ocr/recognition/weight/lora_qwen_khmer \\
-        --local-dir test_set/khob_eval --out-dir eval_out_khob_qwen_ft
+    python training/netra_ocr_train/scripts/evaluate_finetuned_vlm.py \\
+        --model qwen --lora training/weights/lora_qwen_khmer \\
+        --local-dir training/test_set/khob_eval --out-dir eval_out_khob_qwen_ft
 """
 
 import argparse
@@ -103,7 +103,7 @@ def main():
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--out-dir", default="eval_out_finetuned")
     parser.add_argument("--label", default=None)
-    parser.add_argument("--deepseek-dir", default="netra_ocr/recognition/weight/deepseek_ocr_base")
+    parser.add_argument("--deepseek-dir", default="training/weights/deepseek_ocr_base")
     args = parser.parse_args()
 
     label = args.label or f"{args.model}-khmer-ft"

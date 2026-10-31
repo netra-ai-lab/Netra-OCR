@@ -32,12 +32,12 @@ dependencies = [
     "pillow>=10.2.0,<11.0.0",
     "numpy",
     "opencv-python",
-    "netra-runtime>=0.1.0",
+    "netra-runtime>=0.1.1",
 ]
 
 [project.optional-dependencies]
-cpu = ["netra-runtime[cpu]>=0.1.0"]
-gpu = ["netra-runtime[gpu]>=0.1.0"]
+cpu = ["netra-runtime[cpu]>=0.1.1"]
+gpu = ["netra-runtime[gpu]>=0.1.1"]
 # The Tesseract detector backend (netra_ocr/engine.py) pulls in heavier deps and
 # also needs the system Tesseract binary installed separately.
 tesseract = ["pytesseract", "scipy", "scikit-image", "networkx"]
@@ -54,11 +54,6 @@ layout = []
 web = ["netra-ocr[server]"]
 # Everything, on CPU.
 full = ["netra-ocr[cpu,tesseract,docx,pdf,server]"]
-# Research only: training, evaluation and exporting models to bundles
-# (netra_ocr/recognition/scripts, netra-runtime export-yolo). Note:
-# ultralytics and doclayout-yolo are AGPL-3.0 -- see THIRD_PARTY_LICENSES.md.
-research = ["torch>=2.0", "torchvision", "tqdm", "netra-runtime[export]>=0.1.0",
-            "ultralytics", "doclayout-yolo"]
 
 [project.urls]
 Homepage = "https://github.com/netra-ai-lab/Khmer-OCR-CNN-Transformer"
@@ -70,28 +65,17 @@ Repository = "https://github.com/netra-ai-lab/Khmer-OCR-CNN-Transformer"
 netra_ocr = "netra_ocr.ocr_engine:main"
 
 [tool.setuptools.packages.find]
+# Only the app. Training and research code lives in training/ (its own
+# package, netra-ocr-train) and is never shipped.
 include = ["netra_ocr*"]
-# netra_ocr.recognition.scripts is training/eval tooling (train.py,
-# evaluate_*.py, finetune_vlm_khmer.py, ...), several of which import deps
-# (datasets, unsloth, ...) that aren't declared anywhere for the published
-# package. Kept in git, excluded from the wheel -- production installs only
-# need the inference path (netra_ocr.models + detectors + recognize_text).
-exclude = ["netra_ocr.recognition.scripts", "netra_ocr.recognition.scripts.*"]
-# Without this, setuptools treats any directory under netra_ocr* as an
-# implicit PEP 420 namespace package even without __init__.py, which would
-# pull netra_ocr/recognition/archive/ (intentionally not a package -- see
-# its own contents) into the wheel.
 namespaces = false
 
 [tool.setuptools]
-# Keep this false: with include-package-data the build would pull in EVERY git-tracked
-# file inside the packages (all ~600 MB of checkpoints), ignoring the selective globs
-# below. Only the explicit package-data globs are shipped in the wheel.
+# Only the explicit package-data globs below are shipped in the wheel.
 include-package-data = false
 
 # Models are not bundled: they're Netra Runtime bundles downloaded on first use
-# (see netra_ocr/models.py). Only the static UI and small JSON files ship.
+# (see netra_ocr/models.py). Only the static UI ships.
 [tool.setuptools.package-data]
-"netra_ocr.recognition" = ["*.json"]
 "netra_ocr.server" = ["static/*.html", "static/*.css", "static/*.svg", "static/js/*.js", "static/fonts/*.woff2"]
 

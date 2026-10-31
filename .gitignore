@@ -84,16 +84,16 @@ Thumbs.db
 # Hugging Face dataset cache
 .hf_cache/
 
-# Training / evaluation artifacts (not needed for production).
-# The production recognition weight is downloaded from the HF model repo on
-# first use (see recognize_text.py DEFAULT_MODEL_REPO), so local checkpoints
-# under recognition/weight/ are training-only. The YOLO detector weights in
-# netra_ocr/detectors/ ARE tracked and bundled -- do not add them here.
-netra_ocr/recognition/weight/
-netra_ocr/recognition/EVAL_RESULTS.md
-netra_ocr/recognition/TEST_SET_EVAL_RESULTS.md
+# Training / evaluation artifacts. The app downloads its models from
+# Hugging Face (netra_ocr/models.py); checkpoints are training-only. The YOLO
+# line detector's training run in training/weights/yolo26s_best/ is tracked.
+training/weights/*
+!training/weights/yolo26s_best/
+training/netra_ocr_train/EVAL_RESULTS.md
+training/netra_ocr_train/TEST_SET_EVAL_RESULTS.md
 eval_out*/
 test_set/
+bundles/
 research/
 unsloth_compiled_cache/
 

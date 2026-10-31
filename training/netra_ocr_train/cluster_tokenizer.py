@@ -8,7 +8,7 @@ from .tokenization.dispatch import MultiScriptSegmenter
 class ClusterTokenizer:
     """Tokenizer using grapheme-cluster segmentation (Khmer Character Clusters
     for Khmer text, per-character for Latin/digits/other -- see
-    ``netra_ocr.recognition.tokenization``).
+    ``netra_ocr_train.tokenization``).
 
     Pointed at a vocab file with no multi-codepoint entries (e.g. the old
     176-token ``char2idx_new.json``), ``encode()`` degrades to exactly

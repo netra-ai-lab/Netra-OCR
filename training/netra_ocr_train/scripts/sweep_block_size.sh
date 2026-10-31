@@ -11,14 +11,14 @@
 #
 # Usage:
 #   cd /run/media/pc/disk1/Netra-OCR && source .venv/bin/activate
-#   bash netra_ocr/recognition/scripts/sweep_block_size.sh
+#   bash training/netra_ocr_train/scripts/sweep_block_size.sh
 #
 # Override defaults via env vars, e.g.:
 #   BLOCK_SIZES="6 8" EPOCHS=15 bash .../sweep_block_size.sh
 set -euo pipefail
 
-WEIGHT_DIR="netra_ocr/recognition/weight"
-VOCAB="netra_ocr/recognition/char2idx_cluster.json"
+WEIGHT_DIR="training/netra_ocr_train/weight"
+VOCAB="training/netra_ocr_train/char2idx_cluster.json"
 AR_BASE="${AR_BASE:-$WEIGHT_DIR/khmerocr_se_ar_last.pth}"   # converged, frozen cluster-AR base
 BLOCK_SIZES="${BLOCK_SIZES:-6 8 10}"                        # bs=4 already trained
 EPOCHS="${EPOCHS:-20}"
@@ -37,11 +37,11 @@ for BS in $BLOCK_SIZES; do
   FINAL="$WEIGHT_DIR/khmerocr_blockwise_bs${BS}_last.pth"
 
   echo "--- [bs=$BS] init proposal head ---"
-  python -m netra_ocr.recognition.scripts.init_blockwise_decoder \
+  python -m netra_ocr_train.scripts.init_blockwise_decoder \
     --src "$AR_BASE" --dst "$INIT" --vocab "$VOCAB" --block-size "$BS"
 
   echo "--- [bs=$BS] train proposal head ($EPOCHS epochs) ---"
-  python -m netra_ocr.recognition.scripts.train \
+  python -m netra_ocr_train.scripts.train \
     --vocab "$VOCAB" --resume "$INIT" \
     --decoder-type blockwise --block-size "$BS" \
     --epochs "$EPOCHS" --batch-size "$BATCH_SIZE" --epoch-sample-size "$EPOCH_SAMPLE_SIZE" \
@@ -61,8 +61,8 @@ for BS in $BLOCK_SIZES; do
 done
 
 echo "=== Benchmarking AR + all block sizes ==="
-python -m netra_ocr.recognition.scripts.evaluate_benchmark \
-  --local-dir test_set/khob_eval \
+python -m netra_ocr_train.scripts.evaluate_benchmark \
+  --local-dir training/test_set/khob_eval \
   --ar-beam-width 1 \
   --blockwise-model "${BW_MODELS[@]}" \
   --out-dir eval_out_sweep

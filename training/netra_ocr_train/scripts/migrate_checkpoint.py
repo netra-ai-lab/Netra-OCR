@@ -23,11 +23,11 @@ This script does not run any training -- it only produces a new checkpoint
 file that a future training/fine-tuning session can load as a warm start.
 
 Usage:
-    python -m netra_ocr.recognition.scripts.migrate_checkpoint \\
-        --src netra_ocr/recognition/weight/khmerocr_epoch570.pth \\
-        --dst netra_ocr/recognition/weight/khmerocr_cluster_ar.pth \\
-        --old-vocab netra_ocr/recognition/char2idx_new.json \\
-        --new-vocab netra_ocr/recognition/char2idx_cluster.json
+    python -m netra_ocr_train.scripts.migrate_checkpoint \\
+        --src training/weights/khmerocr_epoch570.pth \\
+        --dst training/weights/khmerocr_cluster_ar.pth \\
+        --old-vocab training/netra_ocr_train/char2idx_new.json \\
+        --new-vocab training/netra_ocr_train/char2idx_cluster.json
 """
 
 import argparse
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 def _model_class_for(path: Path):
-    from netra_ocr.recognition.model.model import KhmerOCR as SE_KhmerOCR
+    from netra_ocr_train.model.model import KhmerOCR as SE_KhmerOCR
     return SE_KhmerOCR
 
 
