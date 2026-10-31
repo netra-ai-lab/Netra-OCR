@@ -61,7 +61,7 @@ export function renderHome(root, info) {
   const layout = h("input", { type: "checkbox", checked: true });
   const headers = h("input", { type: "checkbox", checked: true });
   const detector = h("select", { id: "opt-detector" },
-    ["yolo", "legacy", "tesseract"].map((d) => h("option", { value: d }, t(`det.${d}`))));
+    (info?.detectors || ["yolo"]).map((d) => h("option", { value: d }, t(`det.${d}`))));
   const decoder = h("select", { id: "opt-decoder" },
     ["ar", "blockwise"].map((d) => h("option", { value: d }, t(`dec.${d}`))));
   if (info?.defaults) {

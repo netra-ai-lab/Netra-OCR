@@ -66,11 +66,11 @@ To test the pipeline without releasing, run the workflow by hand
 
 ## Facts for the product page
 
-Measured on the 1.1.0 image (i7-13700KF, 24 threads, Docker Desktop):
+Measured on the 1.1.0 image (i7-13700KF, 24 threads, Docker Desktop); download size from 1.2.0:
 
 | | |
 | :--- | :--- |
-| Download | ~520 MB compressed; ~1.6 GB on disk (`docker image ls`) |
+| Download | ~260 MB compressed; ~780 MB on disk (`docker image ls`) |
 | Memory | ~0.4 GB with the models loaded, 2.3 GB peak on a 10-page PDF — recommend 4 GB for Docker |
 | Speed | ~1.1 s per page (0.8–1.7 s, i7-13700KF); 12.6 s for a 10-page PDF. Slower CPUs take longer |
 | GPU | Not needed (CPU-only image) |

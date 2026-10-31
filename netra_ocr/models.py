@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 MODEL_REPO = "hf://Netra-Lab/Netra-OCR"
 # The commit of the model files this package was tested with, so an upload to
 # the repo's main branch doesn't change anyone's results until a release moves it.
-MODEL_REVISION = "ada0c6014c147a15a6b4e11428e3fc36c5a52782"
+MODEL_REVISION = "04cb751b95c3f26417bfd0220f822ea828b6e5cd"
 BUNDLES = {
     "lines": "lines",
     "layout": "layout",

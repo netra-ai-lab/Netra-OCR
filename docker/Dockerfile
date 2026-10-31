@@ -11,14 +11,10 @@
 
 ARG PYTHON_VERSION=3.12
 
-# ── base: system libraries shared by the build and runtime stages ────────────
-# tesseract-ocr(-khm): the optional Tesseract line detector works out of the box.
-# No libgl1: only the headless OpenCV build is installed (see the prune step),
-# which saves the ~200 MB Mesa/LLVM stack libgl1 drags in.
+# ── base: shared by the build and runtime stages ─────────────────────────────
+# No system packages: the app needs no OpenCV and no Tesseract (those detectors
+# are optional extras, left out of the image to keep it small).
 FROM python:${PYTHON_VERSION}-slim AS base
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libglib2.0-0 tesseract-ocr tesseract-ocr-khm && \
-    rm -rf /var/lib/apt/lists/*
 
 # ── build: virtualenv with netra-ocr[server] on ONNX Runtime (CPU), pruned ──
 FROM base AS build
@@ -31,16 +27,9 @@ COPY pyproject.toml readme.md LICENSE MANIFEST.in ./
 COPY netra_ocr ./netra_ocr
 RUN pip install ".[server,cpu]"
 
-# Prune what inference never needs (checked by docker/smoke_test.py below):
-# opencv-python (GUI build, needs libgl1) -> the same version, headless;
-# bundled test suites; pip.
-RUN SP=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])") && \
-    OCV=$(pip show opencv-python | awk '/^Version/{print $2}') && \
-    pip uninstall -y opencv-python opencv-python-headless && \
-    pip install --no-deps "opencv-python-headless==${OCV}" && \
-    find "$SP" -depth -type d \( -name tests -o -name testing_data \) -path "*/scipy/*" -exec rm -rf {} + && \
-    find "$SP" -depth -type d -name tests -path "*/skimage/*" -exec rm -rf {} + && \
-    find /opt/venv -depth -name __pycache__ -type d -exec rm -rf {} + && \
+# Prune what the app never needs (checked by docker/smoke_test.py below):
+# bytecode caches and pip.
+RUN find /opt/venv -depth -name __pycache__ -type d -exec rm -rf {} + && \
     pip uninstall -y pip
 
 # ── weights: the model bundles, fetched once at build time ──────────────────

@@ -33,12 +33,14 @@ The models behind the Netra OCR app, exported to ONNX. Each folder holds the ONN
 
 Each folder is one model:
 
-| Folder | Task | What it is | Variants |
-|---|---|---|---|
-| `recognition/` | text recognition | Khmer + English line recognizer, 19M params, greedy decoding with a KV cache | – |
-| `recognition-blockwise/` | text recognition | the same recognizer plus a blockwise proposal head (same output, fewer decoder passes) | – |
-| `lines/` | object detection | YOLO text-line and logo detector | `fp16` (CUDA default) |
-| `layout/` | object detection | DocLayout-YOLO (DocStructBench) page-layout analyzer | `fp16` (CUDA default) |
+| Folder | Task | What it is | Download | Variants |
+|---|---|---|---|---|
+| `recognition/` | text recognition | Khmer + English line recognizer, 19M params, greedy decoding with a KV cache | 41 MB | – |
+| `recognition-blockwise/` | text recognition | the same recognizer plus a blockwise proposal head (same output, fewer decoder passes) | 44 MB | – |
+| `lines/` | object detection | YOLO text-line and logo detector | 38 MB (19 MB on CUDA) | `fp16` (CUDA default) |
+| `layout/` | object detection | DocLayout-YOLO (DocStructBench) page-layout analyzer | 39 MB | `fp16` (CUDA default) |
+
+A full page pipeline on the CPU downloads about 118 MB. The recognizers' and the layout model's weights are *stored* in half precision and cast back to float32 when the model loads, so they run in float32 at the same speed; only the weights' rounding changes. On 325 test lines, the text matches the float32 files on 325/325 lines on the CPU and 321/325 on CUDA (on the other 4, the number of errors against the labels is unchanged). The layout model gives identical pages. The line detector stays float32, because half-precision storage moved boxes on 2 of 10 test pages.
 
 ## Usage
 

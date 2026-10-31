@@ -32,7 +32,7 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install ".[cpu,server]" pytest httpx
+        run: pip install ".[cpu,server]" pytest httpx opencv-python-headless  # cv2 only to compare netra_ocr.imaging against
 
       - name: Cache the models
         if: inputs.slow
@@ -45,6 +45,9 @@ jobs:
         run: pytest tests -q ${{ inputs.slow && '--slow' || '' }}
         env:
           NETRA_DEVICE: cpu
+
+      - name: Check the package stays small (no model files)
+        run: pip install build && python -m build && python scripts/check_dist.py
 
   web:
     runs-on: ubuntu-24.04

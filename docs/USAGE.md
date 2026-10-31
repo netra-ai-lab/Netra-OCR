@@ -42,7 +42,7 @@ result_text = pipeline.process_image(
 
 ```bash
 netra_ocr --image scan.jpg --output result.txt                              # YOLO detector, plain text
-netra_ocr --image scan.jpg --output result.txt --detector legacy --pad 4    # classic CV, no extras needed
+netra_ocr --image scan.jpg --output result.txt --detector legacy --pad 4    # classic CV, needs the legacy extra
 netra_ocr --image scan.jpg --output result.docx --detector yolo             # Word, logos embedded as images
 netra_ocr --image scan.jpg --output result.json --detector yolo             # text + bounding box per line
 netra_ocr --image scan.jpg --output result.txt --detector yolo --conf 0.4   # YOLO confidence threshold (default 0.25)
@@ -78,8 +78,8 @@ The output format follows the file extension:
 | Detector | Requires | Description |
 | :--- | :--- | :--- |
 | `yolo` (default) | nothing extra | YOLOv26s trained on Khmer documents. Detects text lines (class 0) and logos (class 1). Logos are embedded in `.docx` output; other formats get text only. Text boxes are widened to cover the full line. The model (~38 MB) downloads on first use, like the others (see below). |
-| `tesseract` | `pip install "netra-ocr[tesseract]"` + the system Tesseract binary | Tesseract plus graph clustering. No extra model. |
-| `legacy` | nothing extra | Classic computer vision: MSER, gradient analysis and multi-channel binarisation. Accepts `pad`. |
+| `tesseract` | `pip install "netra-ocr[tesseract]"` (adds OpenCV, SciPy, scikit-image) + the system Tesseract binary | Tesseract plus graph clustering. No extra model. |
+| `legacy` | `pip install "netra-ocr[legacy]"` (adds OpenCV) | Classic computer vision: MSER, gradient analysis and multi-channel binarisation. Accepts `pad`. |
 
 ### Decoders
 
@@ -150,7 +150,7 @@ curl -OJ "http://localhost:8000/v1/jobs/<id>/export?format=docx"    # docx | htm
 | `NETRA_DETECTOR` / `NETRA_DECODER` | `yolo` / `ar` | Defaults for new uploads. |
 | `NETRA_DEVICE` / `NETRA_BUNDLES` | `auto` / *(unset)* | See [Models and devices](#models-and-devices). |
 
-**Building the image yourself.** Run `docker compose up --build`. The build ends with a smoke test that runs every detector, both decoders, PDF input and every export format, so a broken image fails to build instead of failing on your first upload.
+**Building the image yourself.** Run `docker compose up --build`. The build ends with a smoke test that runs the line detector with and without layout analysis, both decoders, PDF input and every export format, so a broken image fails to build instead of failing on your first upload. The image has only the default `yolo` detector; the web app offers whichever detectors are installed (`/v1/info` lists them), so to add `legacy` or `tesseract`, install their extras (and the Tesseract binary) in your own image.
 
 ## 4. Without the package: the Hugging Face script
 

@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import models
+from ..detectors import available as available_detectors
 from ..document import DocumentValidationError
 from ..exporters import FORMATS, export
 from ..io import count_pages, sniff_kind
@@ -27,7 +28,7 @@ from .settings import Settings
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
-DETECTORS = ("yolo", "legacy", "tesseract")
+DETECTORS = ("yolo", "legacy", "tesseract")   # all known; available() says which can run here
 DECODERS = models.DECODERS
 
 
@@ -109,7 +110,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "device_name": models.describe_device(),
             "cuda": device.startswith(("cuda", "tensorrt")),
             "models_ready": jobs().models_ready.is_set(),
-            "detectors": list(DETECTORS),
+            "detectors": available_detectors(),
             "decoders": list(DECODERS),
             "defaults": {"detector": settings.default_detector, "decoder": settings.default_decoder,
                          "layout": True},
@@ -136,6 +137,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         decoder = decoder or settings.default_decoder
         if detector not in DETECTORS:
             raise HTTPException(422, f"Unknown detector '{detector}'. Use one of {list(DETECTORS)}.")
+        if detector not in available_detectors():
+            raise HTTPException(422, f"The '{detector}' detector isn't installed on this server. "
+                                     f"Available: {available_detectors()}.")
         if decoder not in DECODERS:
             raise HTTPException(422, f"Unknown decoder '{decoder}'. Use one of {list(DECODERS)}.")
 

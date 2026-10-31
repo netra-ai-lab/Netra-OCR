@@ -3,9 +3,9 @@ on ONNX Runtime."""
 
 from typing import List
 
-import cv2
 import numpy as np
 
+from ..imaging import bgr_to_rgb
 from .base import BaseLayoutAnalyzer, LayoutRegion, area, intersection
 
 
@@ -55,7 +55,7 @@ class DocLayoutYoloAnalyzer(BaseLayoutAnalyzer):
 
     def _predict(self, img_bgr: np.ndarray):
         """Raw model output: ``[(x1 y1 x2 y2, class name, score)]`` in image pixels."""
-        found = self._model(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), conf=self._conf)
+        found = self._model(bgr_to_rgb(img_bgr), conf=self._conf)
         return [(d.box, d.label, d.score) for d in found]
 
     def analyze(self, img_bgr: np.ndarray) -> List[LayoutRegion]:

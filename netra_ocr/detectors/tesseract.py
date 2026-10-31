@@ -1,5 +1,6 @@
-import cv2
 from PIL import Image
+
+from ..imaging import bgr_to_rgb
 from .base import BaseTextDetector, DetectedLine, ImageInput, load_bgr
 
 
@@ -21,7 +22,7 @@ class TesseractDetector(BaseTextDetector):
         result = self._detector.detect(img_bgr)
         lines = []
         for lb, crop_np in zip(result.lines, result.line_crops):
-            pil_crop = Image.fromarray(cv2.cvtColor(crop_np, cv2.COLOR_BGR2RGB))
+            pil_crop = Image.fromarray(bgr_to_rgb(crop_np))
             bbox = (lb.x, lb.y, lb.x + lb.w, lb.y + lb.h)
             lines.append(DetectedLine(bbox=bbox, crop=pil_crop))
         return lines

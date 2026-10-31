@@ -4,13 +4,14 @@ These helpers run *after* a detector (e.g. YOLO) has produced bounding boxes.
 They look at the actual ink in the image to fix boxes that under-shoot the
 text line, without changing the detector's interface.
 
-Only ``cv2`` + ``numpy`` are used so this stays cheap and dependency-light.
+Only ``numpy`` is used (through ``netra_ocr.imaging``), so this stays cheap and dependency-light.
 """
 
 from typing import List, Tuple
 
-import cv2
 import numpy as np
+
+from ..imaging import connected_components, otsu_threshold, to_gray
 
 Box = Tuple[int, int, int, int]  # (x1, y1, x2, y2)
 
@@ -21,11 +22,11 @@ def _binarize_ink(img_bgr: np.ndarray) -> np.ndarray:
     Uses Otsu thresholding and auto-flips for inverted scans (light text on a
     dark page) by checking the foreground ratio.
     """
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    gray = to_gray(img_bgr)
+    binary = np.where(gray > otsu_threshold(gray), 0, 255).astype(np.uint8)
     # If more than half the image is "ink", Otsu picked the wrong polarity.
     if np.count_nonzero(binary) > 0.5 * binary.size:
-        binary = cv2.bitwise_not(binary)
+        binary = 255 - binary
     return binary
 
 
@@ -101,13 +102,10 @@ def expand_boxes_horizontally(
     binary = _binarize_ink(img_bgr)
 
     # One connected-component pass for the whole image, reused for every box.
-    num, _labels, stats, centroids = cv2.connectedComponentsWithStats(binary, connectivity=8)
-    # stats rows: [x, y, w, h, area]; row 0 is the background — skip it.
-    comps = []  # (cx1, cy1, cx2, cy2, cyc, area)
-    for i in range(1, num):
-        cx, cy, cw, ch, area = stats[i]
-        cyc = centroids[i][1]
-        comps.append((cx, cy, cx + cw, cy + ch, cyc, area))
+    # Their order doesn't matter: each box grows until no more components fit.
+    comps = []  # (cx1, cy1, cx2, cy2, area)
+    for cx, cy, cw, ch, area in connected_components(binary).tolist():
+        comps.append((cx, cy, cx + cw, cy + ch, area))
 
     refined: List[Box] = []
     for (x1, y1, x2, y2) in boxes:
@@ -117,7 +115,7 @@ def expand_boxes_horizontally(
 
         # Candidate ink components that belong to this line.
         candidates = []
-        for (cx1, cy1, cx2, cy2, cyc, area) in comps:
+        for (cx1, cy1, cx2, cy2, area) in comps:
             if area < min_area:
                 continue
             if (cx2 - cx1) > 0.9 * img_w:  # full-width rule / separator

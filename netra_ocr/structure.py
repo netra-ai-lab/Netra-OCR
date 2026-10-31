@@ -18,11 +18,11 @@ from dataclasses import dataclass, field
 from statistics import median
 from typing import List, Optional, Sequence
 
-import cv2
 import numpy as np
 from PIL import Image
 
 from .document import AssetStore
+from .imaging import bgr_to_rgb, otsu_threshold, to_gray
 from .layout.base import IMAGE_LABELS, TABLE_LABELS, TEXT_LABELS, Box, LayoutRegion, area, intersection
 from .layout.order import assign_lines, group_orphan_lines, union_box, xy_cut_order
 from .layout.table import build_grid
@@ -141,9 +141,8 @@ def consolidate_lines(img_bgr: np.ndarray, boxes: Sequence[Box], crops: Sequence
 
 def ink_mask(img_bgr: np.ndarray) -> np.ndarray:
     """Boolean mask of dark (ink) pixels, thresholded for the whole page."""
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    thr, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    return gray < min(thr, 200)
+    gray = to_gray(img_bgr)
+    return gray < min(otsu_threshold(gray), 200)
 
 
 def join_lines(boxes: Sequence[Box], texts: Sequence[str], keep_breaks: bool) -> str:
@@ -435,7 +434,7 @@ def plan_page(page_size, line_boxes: Sequence[Box], logo_boxes: Sequence[Box],
 
 def _crop(img_bgr: np.ndarray, box: Box) -> Image.Image:
     x1, y1, x2, y2 = box
-    return Image.fromarray(cv2.cvtColor(img_bgr[y1:y2, x1:x2], cv2.COLOR_BGR2RGB))
+    return Image.fromarray(bgr_to_rgb(img_bgr[y1:y2, x1:x2]))
 
 
 def region_crops(img_bgr: np.ndarray, units: Sequence[Unit]) -> List[Image.Image]:

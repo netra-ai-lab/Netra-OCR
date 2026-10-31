@@ -1,6 +1,7 @@
-import cv2
 import numpy as np
 from PIL import Image
+
+from ..imaging import bgr_to_rgb
 from .base import BaseTextDetector, DetectedLine, ImageInput, load_bgr
 from .refine import expand_boxes_horizontally
 
@@ -27,7 +28,7 @@ class YoloDetector(BaseTextDetector):
 
     def _predict(self, img_bgr):
         """Raw model output: ``(boxes (N, 4) x1 y1 x2 y2, class ids (N,))`` in image pixels."""
-        found = self._model(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB), conf=self._conf)
+        found = self._model(bgr_to_rgb(img_bgr), conf=self._conf)
         boxes = np.array([d.box for d in found], dtype=np.float32).reshape(-1, 4)
         return boxes, np.array([d.class_id for d in found])
 
@@ -61,7 +62,7 @@ class YoloDetector(BaseTextDetector):
         for boxes, label in ((text_boxes, "text"), (logo_boxes, "logo")):
             for (x1, y1, x2, y2) in boxes:
                 crop_bgr = img_bgr[y1:y2, x1:x2]
-                pil_crop = Image.fromarray(cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB))
+                pil_crop = Image.fromarray(bgr_to_rgb(crop_bgr))
                 detected.append(DetectedLine(bbox=(x1, y1, x2, y2), crop=pil_crop, label=label))
 
         return detected

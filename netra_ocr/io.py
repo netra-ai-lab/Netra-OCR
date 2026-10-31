@@ -3,9 +3,10 @@
 import io
 from typing import Iterator, Union
 
-import cv2
 import numpy as np
 from PIL import Image, ImageOps
+
+from .imaging import rgb_to_bgr
 
 Source = Union[str, bytes]
 
@@ -48,7 +49,7 @@ def count_pages(source: Source) -> int:
 
 def _pil_to_bgr(im: Image.Image) -> np.ndarray:
     im = ImageOps.exif_transpose(im).convert("RGB")
-    return cv2.cvtColor(np.asarray(im), cv2.COLOR_RGB2BGR)
+    return rgb_to_bgr(np.asarray(im))
 
 
 def iter_pages(source: Source, max_pages: int | None = None, dpi: int = PDF_DPI) -> Iterator[np.ndarray]:
