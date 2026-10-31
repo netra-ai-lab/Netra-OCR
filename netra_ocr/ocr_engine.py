@@ -1,6 +1,7 @@
 # ocr_engine.py
 """
-Khmer OCR Pipeline — pluggable text detector, plain-text output.
+Khmer OCR pipeline: page image or PDF -> text lines -> recognized text ->
+(with layout=True) a structured document.
 
 The YOLO detector, layout model and recognizer run on ONNX Runtime
 (netra_ocr/inference); netra_ocr/models.py says where they come from.
@@ -9,8 +10,9 @@ Detection
 ---------
 Detectors are registered in netra_ocr/detectors/__init__.py and selected by name.
 Currently available:
-    yolo       (default) — YOLOv2.6s trained on Khmer documents (class 0: text, class 1: logo)
-    tesseract            — KhmerLineDetector built on Tesseract + graph clustering
+    yolo       (default) — YOLO trained on Khmer documents (class 0: text, class 1: logo)
+    tesseract            — Tesseract + graph clustering (detectors/tesseract_lines.py)
+    legacy               — classic computer vision, no model (detectors/legacy_lines.py)
 
 Add a new detector by:
   1. Implementing BaseTextDetector in netra_ocr/detectors/<name>.py
@@ -35,8 +37,8 @@ from PIL import Image
 from .detectors import get_detector
 from .document import AssetStore, Document
 from .io import count_pages, iter_pages, sniff_kind
-from .recognition.recognize_text import recognize_batch
-from .output_formatters import save_output, SUPPORTED_FORMATS
+from .recognition import recognize_batch
+from .exporters.lines import save_output, SUPPORTED_FORMATS
 from . import structure
 
 

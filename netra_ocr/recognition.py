@@ -1,4 +1,11 @@
-"""Text-line recognition on ONNX Runtime (no PyTorch).
+"""Recognize text-line images you already have, without the page pipeline.
+
+    from netra_ocr.recognition import recognize, recognize_batch
+
+    text = recognize("line_crop.png")                 # a path, PIL Image or RGB array
+    texts = recognize_batch([crop1, crop2, crop3])
+
+    python -m netra_ocr.recognition --image line_crop.png [--decoder blockwise]
 
 The model is ``recognition`` (decoder="ar") or ``recognition-blockwise``
 (decoder="blockwise") from ``netra_ocr.models``, downloaded once from Hugging
@@ -8,12 +15,12 @@ tokens per decoder pass. The model code itself is in ``netra_ocr.inference``.
 
 import argparse
 
-from .. import models
+from . import models
 
 
 def _recognizer(decoder: str, bundle: str | None):
     if bundle is not None:
-        from ..inference import Recognizer
+        from .inference import Recognizer
         return Recognizer(bundle, device=models.device())
     if decoder not in models.DECODERS:
         raise ValueError(f"Unknown decoder '{decoder}'. Available: {list(models.DECODERS)}")

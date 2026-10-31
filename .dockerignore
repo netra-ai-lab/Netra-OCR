@@ -6,7 +6,6 @@
 !readme.md
 !LICENSE
 !MANIFEST.in
-!requirements.txt
 !netra_ocr/
 !docker/fetch_weights.py
 !docker/smoke_test.py

@@ -6,7 +6,7 @@ from .base import BaseTextDetector, DetectedLine, ImageInput, load_bgr
 class TesseractDetector(BaseTextDetector):
     def __init__(self):
         try:
-            from netra_ocr.engine import KhmerLineDetector
+            from .tesseract_lines import KhmerLineDetector
         except ImportError as e:
             raise ImportError(
                 "The Tesseract detector requires the 'tesseract' extra (and the "

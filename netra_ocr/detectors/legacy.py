@@ -5,7 +5,7 @@ from .base import BaseTextDetector, DetectedLine, ImageInput, load_bgr
 
 class LegacyDetector(BaseTextDetector):
     def __init__(self, pad: int | None = None, **kwargs):
-        from netra_ocr.legacy_detector import ImageProcessingTextDetector
+        from .legacy_lines import ImageProcessingTextDetector
         # `pad` is applied per-box AFTER detection (see detect), not passed into
         # the detector's internal `padding`. The internal padding influences box
         # merging, so feeding `pad` there would change the number of boxes as the
