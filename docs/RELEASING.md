@@ -30,6 +30,8 @@ publishes it whenever a version tag is pushed.
    repo `Netra-Lab/Netra-OCR` first (card source:
    `docs/RUNTIME_MODEL_CARD.md`), because the package and the image download
    them at run/build time. The export commands are in `training/README.md`.
+   Then set `MODEL_REVISION` in `netra_ocr/models.py` to the new commit hash
+   (or a tag) of that repo: the package only loads the revision it names.
 1. Bump `version` in `pyproject.toml` (the app shows it in the footer and at
    `/v1/info`).
 2. Commit and push to `master`.
