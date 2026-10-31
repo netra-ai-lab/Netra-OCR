@@ -27,7 +27,7 @@ RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 
 WORKDIR /src
-COPY pyproject.toml readme.md LICENSE MANIFEST.in requirements.txt ./
+COPY pyproject.toml readme.md LICENSE MANIFEST.in ./
 COPY netra_ocr ./netra_ocr
 RUN pip install ".[server,cpu]"
 

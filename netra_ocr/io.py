@@ -1,7 +1,6 @@
 """Load document pages (images, multi-page TIFF, PDF) as BGR arrays."""
 
 import io
-import os
 from typing import Iterator, Union
 
 import cv2

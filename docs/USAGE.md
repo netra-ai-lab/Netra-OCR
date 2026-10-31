@@ -19,7 +19,7 @@ text = recognize("line_crop.png", bundle="bundles/my-recognizer")  # your own ex
 Command line, one image, no detection step:
 
 ```bash
-python -m netra_ocr.recognition.recognize_text --image line_crop.png --decoder blockwise
+python -m netra_ocr.recognition --image line_crop.png --decoder blockwise
 ```
 
 To bring your own detector, implement `netra_ocr.detectors.base.BaseTextDetector` (one method, `detect(image_path) -> list[DetectedLine]`) and pass its `DetectedLine.crop` values to `recognize_batch`. You don't need to register it in `DETECTOR_REGISTRY` or use `KhmerOCRPipeline` unless you want its output formatting and CLI.

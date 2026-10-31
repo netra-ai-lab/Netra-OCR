@@ -1,6 +1,8 @@
 """
-output_formatters.py
-Plain-text output writers for the Khmer OCR pipeline.
+Line-list writers for ``KhmerOCRPipeline.process_image`` without layout: each
+detected line becomes one line of text (or a picture, for logos), with no
+headings, paragraphs or tables. Everything else uses this package's
+``export`` / ``save_document``, which write a structured ``Document``.
 
 Segment schema
 --------------

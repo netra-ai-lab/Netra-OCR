@@ -4,7 +4,7 @@ train.py saves resumable checkpoints: model_state_dict + optimizer_state_dict
 + epoch + meta. The optimizer state (Adam's per-parameter momentum/variance
 buffers) is only needed to *resume training* and is often larger than the
 model itself -- e.g. the cluster-AR checkpoint is 231 MB, of which 154 MB is
-optimizer state. Inference (predictor.py / recognize_text.py) never touches it.
+optimizer state. Inference (predictor.py, the app) never touches it.
 
 This drops the optimizer state (and epoch), keeping model_state_dict and meta
 (meta carries decoder_type/block_size, which autodetect_config reads for the

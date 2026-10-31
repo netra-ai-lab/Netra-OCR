@@ -38,7 +38,7 @@ dependencies = [
 [project.optional-dependencies]
 cpu = ["onnxruntime>=1.20"]
 gpu = ["onnxruntime-gpu>=1.20"]
-# The Tesseract detector backend (netra_ocr/engine.py) pulls in heavier deps and
+# The Tesseract detector backend (netra_ocr/detectors/tesseract_lines.py) pulls in heavier deps and
 # also needs the system Tesseract binary installed separately.
 tesseract = ["pytesseract", "scipy", "scikit-image", "networkx"]
 # .docx output support.

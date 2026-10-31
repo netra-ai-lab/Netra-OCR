@@ -12,8 +12,7 @@ Architecture:
 import cv2
 import numpy as np
 import pytesseract
-from scipy import ndimage, signal
-from scipy.spatial.distance import cdist
+from scipy import ndimage
 from skimage.filters import threshold_sauvola
 from dataclasses import dataclass, field
 from typing import List, Dict, Tuple, Optional
