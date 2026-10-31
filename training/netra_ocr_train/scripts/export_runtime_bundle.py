@@ -20,9 +20,9 @@ use basic ONNX ops that every ONNX Runtime build (including onnxruntime-web)
 supports.
 
 Usage:
-    python -m netra_ocr.recognition.scripts.export_runtime_bundle \
-        --model netra_ocr/recognition/weight/khmerocr_cluster_ar.pth \
-        --out bundles/recognition --check test_set/khob_eval
+    python -m netra_ocr_train.scripts.export_runtime_bundle \
+        --model training/weights/khmerocr_cluster_ar.pth \
+        --out bundles/recognition --check training/test_set/khob_eval
 """
 
 import argparse

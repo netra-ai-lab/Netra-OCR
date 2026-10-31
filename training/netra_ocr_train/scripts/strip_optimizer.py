@@ -12,9 +12,9 @@ blockwise decoder), so the result is small enough to commit to git while
 loading identically for inference.
 
 Usage:
-    python -m netra_ocr.recognition.scripts.strip_optimizer \\
-        --src netra_ocr/recognition/weight/khmerocr_se_ar_last.pth \\
-        --dst netra_ocr/recognition/weight/khmerocr_cluster_ar.pth
+    python -m netra_ocr_train.scripts.strip_optimizer \\
+        --src training/weights/khmerocr_se_ar_last.pth \\
+        --dst training/weights/khmerocr_cluster_ar.pth
 """
 
 import argparse

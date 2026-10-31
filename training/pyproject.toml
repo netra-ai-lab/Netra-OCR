@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# Not published: install it from a checkout next to the app,
+#   pip install -e ".[cpu]" -e training
+[project]
+name = "netra-ocr-train"
+version = "0.0.0"
+description = "Training, evaluation and export for Netra OCR's models (research only)."
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "torch>=2.0",
+    "torchvision",
+    "tqdm",
+    "numpy",
+    "pillow",
+    "netra-runtime[export]>=0.1.1",   # export_runtime_bundle, netra-runtime export-yolo
+    # ultralytics and doclayout-yolo are AGPL-3.0 -- see THIRD_PARTY_LICENSES.md.
+    "ultralytics",
+    "doclayout-yolo",
+]
+
+[tool.setuptools.packages.find]
+include = ["netra_ocr_train*"]
+
+[tool.setuptools.package-data]
+netra_ocr_train = ["*.json"]

@@ -29,7 +29,7 @@ ENV PATH=/opt/venv/bin:$PATH
 # The runtime and its CPU ONNX Runtime build. Override to build against an
 # unreleased runtime, e.g.
 #   --build-arg NETRA_RUNTIME="netra-runtime[cpu] @ https://github.com/netra-ai-lab/Netra-Runtime/archive/<sha>.tar.gz"
-ARG NETRA_RUNTIME="netra-runtime[cpu]>=0.1.0"
+ARG NETRA_RUNTIME="netra-runtime[cpu]>=0.1.1"
 RUN pip install "${NETRA_RUNTIME}"
 
 WORKDIR /src

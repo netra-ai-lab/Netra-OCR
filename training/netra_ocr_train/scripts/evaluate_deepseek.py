@@ -1,5 +1,5 @@
 """Evaluate DeepSeek-OCR (deepseek-ai/DeepSeek-OCR) against a local
-{images/, labels/} benchmark directory (e.g. test_set/khob_eval).
+{images/, labels/} benchmark directory (e.g. training/test_set/khob_eval).
 
 Must be run under the separate `.venv-deepseek` environment (pinned
 transformers==4.46.3) -- DeepSeek-OCR's remote-modeling code imports
@@ -10,8 +10,8 @@ Usage (run as a plain script, NOT `python -m ...` -- `-m` would import the
 `netra_ocr` package's __init__ first, which pulls in cv2/ultralytics that
 aren't installed in this venv):
     source .venv-deepseek/bin/activate
-    python netra_ocr/recognition/scripts/evaluate_deepseek.py \\
-        --local-dir test_set/khob_eval --out-dir eval_out_khob_deepseek
+    python training/netra_ocr_train/scripts/evaluate_deepseek.py \\
+        --local-dir training/test_set/khob_eval --out-dir eval_out_khob_deepseek
 
 Loads ocr_eval_common.py directly via importlib (bypassing the `netra_ocr`
 package __init__, which pulls in cv2/ultralytics -- not installed in this

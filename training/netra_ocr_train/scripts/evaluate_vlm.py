@@ -5,12 +5,12 @@ as evaluate_benchmark.py (see ocr_eval_common.py), so results are directly
 comparable across engines.
 
 Usage:
-    python -m netra_ocr.recognition.scripts.evaluate_vlm --engine surya \\
-        --local-dir test_set/khob_eval --out-dir eval_out_khob_surya
-    python -m netra_ocr.recognition.scripts.evaluate_vlm --engine qwen \\
-        --local-dir test_set/khob_eval --out-dir eval_out_khob_qwen
-    python -m netra_ocr.recognition.scripts.evaluate_vlm --engine tesseract \\
-        --local-dir test_set/khob_eval --out-dir eval_out_khob_tess
+    python -m netra_ocr_train.scripts.evaluate_vlm --engine surya \\
+        --local-dir training/test_set/khob_eval --out-dir eval_out_khob_surya
+    python -m netra_ocr_train.scripts.evaluate_vlm --engine qwen \\
+        --local-dir training/test_set/khob_eval --out-dir eval_out_khob_qwen
+    python -m netra_ocr_train.scripts.evaluate_vlm --engine tesseract \\
+        --local-dir training/test_set/khob_eval --out-dir eval_out_khob_tess
 
 The tesseract engine needs a tesseract binary (set TESSERACT_CMD if it isn't
 on PATH) and khm/eng traineddata (set TESSDATA_PREFIX to their directory).

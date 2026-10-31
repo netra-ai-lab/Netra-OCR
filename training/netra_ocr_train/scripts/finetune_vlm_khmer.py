@@ -10,9 +10,9 @@ plain script, not `-m` (the netra_ocr package __init__ imports cv2 etc.,
 which aren't installed there):
 
     source .venv-unsloth/bin/activate
-    python netra_ocr/recognition/scripts/finetune_vlm_khmer.py --model qwen
-    python netra_ocr/recognition/scripts/finetune_vlm_khmer.py --model deepseek \\
-        --deepseek-dir weight/deepseek_ocr_base
+    python training/netra_ocr_train/scripts/finetune_vlm_khmer.py --model qwen
+    python training/netra_ocr_train/scripts/finetune_vlm_khmer.py --model deepseek \\
+        --deepseek-dir training/weights/deepseek_ocr_base
 
 Training data: an even sample from seanghay/khmer-hanuman-100k plus the two
 Darayut/* synthetic sets (all already in .hf_cache, symlinked into
@@ -177,12 +177,12 @@ def main():
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--seed", type=int, default=3407)
     parser.add_argument("--out-dir", default=None,
-                        help="LoRA output dir (default netra_ocr/recognition/weight/lora_<model>_khmer)")
-    parser.add_argument("--deepseek-dir", default="netra_ocr/recognition/weight/deepseek_ocr_base",
+                        help="LoRA output dir (default training/weights/lora_<model>_khmer)")
+    parser.add_argument("--deepseek-dir", default="training/weights/deepseek_ocr_base",
                         help="Local unsloth/DeepSeek-OCR snapshot (deepseek only)")
     args = parser.parse_args()
 
-    out_dir = args.out_dir or f"netra_ocr/recognition/weight/lora_{args.model}_khmer"
+    out_dir = args.out_dir or f"training/weights/lora_{args.model}_khmer"
 
     # Import unsloth before torch/transformers usage so its patches apply.
     if args.model == "qwen":

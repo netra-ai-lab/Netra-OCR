@@ -10,9 +10,9 @@ are appended starting at id 176, followed by one new ``<mask>`` token used by
 the semi-autoregressive decoder.
 
 Usage:
-    python -m netra_ocr.recognition.scripts.build_cluster_vocab \\
-        --corpus texts/khmer_corpus.txt --coverage 0.995 \\
-        --out netra_ocr/recognition/char2idx_cluster.json
+    python -m netra_ocr_train.scripts.build_cluster_vocab \\
+        --corpus training/texts/khmer_corpus.txt --coverage 0.995 \\
+        --out training/netra_ocr_train/char2idx_cluster.json
 """
 
 import argparse
@@ -20,7 +20,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from netra_ocr.recognition.tokenization.dispatch import MultiScriptSegmenter
+from netra_ocr_train.tokenization.dispatch import MultiScriptSegmenter
 
 
 def scan_corpus(corpus_path: Path, segmenter: MultiScriptSegmenter,
@@ -99,12 +99,12 @@ def report(cluster_counts: Counter, base_vocab: dict, coverages: list[float],
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", type=Path, default=Path("texts/khmer_corpus.txt"))
+    parser.add_argument("--corpus", type=Path, default=Path("training/texts/khmer_corpus.txt"))
     parser.add_argument("--base-vocab", type=Path,
-                         default=Path("netra_ocr/recognition/char2idx_new.json"))
+                         default=Path("training/netra_ocr_train/char2idx_new.json"))
     parser.add_argument("--coverage", type=float, default=0.995)
     parser.add_argument("--out", type=Path,
-                         default=Path("netra_ocr/recognition/char2idx_cluster.json"))
+                         default=Path("training/netra_ocr_train/char2idx_cluster.json"))
     parser.add_argument("--report-only", action="store_true",
                          help="Only print the coverage/vocab-size report, don't write files.")
     args = parser.parse_args()

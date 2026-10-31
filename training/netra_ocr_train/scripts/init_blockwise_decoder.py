@@ -14,10 +14,10 @@ and only adds a small new trainable proposal head on top -- everything else
 copied verbatim from the source checkpoint and frozen.
 
 Usage:
-    python -m netra_ocr.recognition.scripts.init_blockwise_decoder \\
-        --src netra_ocr/recognition/weight/khmerocr_epoch570.pth \\
-        --dst netra_ocr/recognition/weight/khmerocr_blockwise_init.pth \\
-        --vocab netra_ocr/recognition/char2idx_new.json \\
+    python -m netra_ocr_train.scripts.init_blockwise_decoder \\
+        --src training/weights/khmerocr_epoch570.pth \\
+        --dst training/weights/khmerocr_blockwise_init.pth \\
+        --vocab training/netra_ocr_train/char2idx_new.json \\
         --block-size 4
 """
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def _model_class_for(path: Path):
-    from netra_ocr.recognition.model.model import KhmerOCR as SE_KhmerOCR
+    from netra_ocr_train.model.model import KhmerOCR as SE_KhmerOCR
     return SE_KhmerOCR
 
 
