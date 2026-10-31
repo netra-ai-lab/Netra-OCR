@@ -47,7 +47,7 @@ This repository presents Netra-OCR, a **19M-parameter** text-line recognizer for
 2. The chunks' tokens are merged into one sequence and smoothed across the chunk seams by a **bidirectional LSTM**.
 3. A Transformer decoder writes the text. English is tokenised by character, and Khmer by a mix of characters and **character clusters**.
 
-On the public KHOB benchmark, Netra-OCR reaches **0.96% CER**, against 5.12% for Tesseract 5, the next best. On phone photos of legal documents it reaches **5.31%**, against 41.78% for Tesseract. An optional blockwise parallel decoder gives the same output **1.55× faster**.
+On the public KHOB benchmark, Netra-OCR reaches **0.96% CER**, against 5.12% for Tesseract 5, the next best. On phone photos of legal documents it reaches **5.31%**, against 41.78% for Tesseract. An optional blockwise parallel decoder gives the same output **1.55× faster** in PyTorch.
 
 Around the model, the package adds text-line and layout detection, PDF input, a browser editor and Word export, and ships as one Docker image.
 
@@ -108,14 +108,14 @@ Netra-OCR was trained entirely on synthetic data: **1.3M** text-line images, of 
 
 <p><em>Figure 3: One step of blockwise parallel decoding, reading ព្រះរាជាណាចក្រកម្ពុជា (“Kingdom of Cambodia”) one character cluster per token. (1) The proposal head guesses the next 4 tokens at once. (2) The decoder reads all the guesses in one parallel pass and gives its own greedy choice under each one; here it agrees with p1 and p2 and differs at p3 (ក against ក្រ). (3) The matching guesses are kept, the decoder's own ក្រ is added, and the rest is discarded: 3 tokens from 2 passes, where greedy decoding needs 3. Every kept token is one greedy decoding would also write, so the output is identical.</em></p>
 
-Speed on KHOB (325 lines), same model, greedy decoding:
+Speed on KHOB (325 lines), same PyTorch model, greedy decoding:
 
 | Decoder | CER | Exact match | ms per line | Lines per second | Tokens per step | Speed-up |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Autoregressive | 1.17 | 84.9 | 17.60 | 56.8 | 1 | 1.00× |
 | **Blockwise, 4 proposed** | **1.17** | **84.9** | **11.35** | **88.1** | **2.7** | **1.55×** |
 
-The decoder runs about 2.7× fewer passes; the end-to-end gain is smaller because the encoder costs the same ([docs/RESULTS.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RESULTS.md)).
+The decoder runs about 2.7× fewer passes; the end-to-end gain is smaller because the encoder costs the same ([docs/RESULTS.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RESULTS.md)). The package's ONNX models cache the decoder's keys and values, which makes each pass cheap, so there both decoders run at the same speed (about 13 ms per line on CPU or CUDA).
 
 | Feature | Detail |
 | :--- | :--- |

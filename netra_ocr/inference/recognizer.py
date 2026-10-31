@@ -1,7 +1,7 @@
 """Text-line recognizer: one line image -> Khmer/English text.
 
 Two ONNX graphs, exported from the PyTorch model by
-``training/netra_ocr_train/scripts/export_runtime_bundle.py``:
+``training/netra_ocr_train/scripts/export_recognizer.py``:
 
     encoder       chunks (N, 1, height, chunk_width) -> cross_k, cross_v
                   [layers, 1, heads, S, head_dim]: the decoder's attention
