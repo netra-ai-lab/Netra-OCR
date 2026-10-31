@@ -23,6 +23,11 @@ publishes it whenever a version tag is pushed.
      - secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`
 
    With the variable unset, the workflow publishes to GHCR only.
+3. **PyPI Trusted Publishing.** `.github/workflows/pypi.yml` publishes the
+   package on the same version tag, with no token: on pypi.org → `netra-ocr` →
+   Settings → Publishing, add a trusted publisher (owner `netra-ai-lab`,
+   repository `Netra-OCR`, workflow `pypi.yml`, environment `pypi`), and create
+   the environment `pypi` in the GitHub repo (Settings → Environments).
 
 ## Each release
 
@@ -32,7 +37,10 @@ publishes it whenever a version tag is pushed.
    them at run/build time. The export commands are in `training/README.md`.
    Then set `MODEL_REVISION` in `netra_ocr/models.py` to the new commit hash
    (or a tag) of that repo: the package only loads the revision it names.
-1. Bump `version` in `pyproject.toml` (the app shows it in the footer and at
+1. Run the checks: `pytest tests --slow` (every test page's text against
+   `tests/golden/`) and `python scripts/benchmark.py --device cpu` (seconds per
+   page by stage; compare with the last release).
+   Bump `version` in `pyproject.toml` (the app shows it in the footer and at
    `/v1/info`).
 2. Commit and push to `master`.
 3. Tag and push the tag:
@@ -45,7 +53,8 @@ publishes it whenever a version tag is pushed.
 4. Watch the *docker* workflow. Each architecture builds on its own runner
    and runs `docker/smoke_test.py` (every detector, both decoders, PDF input,
    every export), so a broken image fails here instead of on a user's machine.
-   The final job publishes `1.1.0`, `1.1` and `latest`.
+   The final job publishes `1.1.0`, `1.1` and `latest`. The *pypi* workflow
+   uploads the package; it fails if the tag doesn't match the version.
 5. Check it from a clean machine:
 
    ```bash

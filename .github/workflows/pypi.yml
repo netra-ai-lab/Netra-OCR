@@ -1,0 +1,51 @@
+# Publish netra-ocr to PyPI when a version tag is pushed (v1.2.3).
+#
+# Uses PyPI Trusted Publishing: no token is stored anywhere. One-time setup on
+# pypi.org → netra-ocr → Settings → Publishing → Add a trusted publisher:
+#   owner netra-ai-lab, repository Netra-OCR, workflow pypi.yml, environment pypi
+# and create the environment "pypi" in the GitHub repo (Settings → Environments).
+name: pypi
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check the tag matches the version
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          test "v$version" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != pyproject version $version"; exit 1; }
+
+      - name: Build
+        run: pip install build && python -m build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
