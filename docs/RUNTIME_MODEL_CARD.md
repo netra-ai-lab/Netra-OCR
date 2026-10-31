@@ -12,7 +12,6 @@ tags:
 - khmer-ocr
 - document-layout
 - onnx
-- netra-runtime
 - netra-lab
 ---
 
@@ -24,16 +23,15 @@ tags:
 
 <p align="center">
   <a href="https://github.com/netra-ai-lab/Netra-OCR"><b>GitHub</b></a> |
-  <a href="https://github.com/netra-ai-lab/Netra-Runtime"><b>Netra Runtime</b></a> |
   <a href="https://pypi.org/project/netra-ocr/"><b>PyPI</b></a> |
   <a href="https://huggingface.co/Darayut/khmer-text-recognition"><b>PyTorch weights</b></a>
 </p>
 
 # Netra OCR
 
-The models behind the Netra OCR app, exported as [Netra Runtime](https://github.com/netra-ai-lab/Netra-Runtime) bundles: ONNX graphs plus a `netra-model.json` manifest that says how to pre-process, decode and post-process. The same bundles run on CPU and CUDA from Python and in the browser (WebGPU / WebAssembly), with no PyTorch.
+The models behind the Netra OCR app, exported to ONNX. Each folder holds the ONNX graphs plus a `netra-model.json` config with the settings the app's pre- and post-processing need (line height and chunk width, decoder shape, class names, thresholds). The [`netra-ocr`](https://pypi.org/project/netra-ocr/) package runs them on ONNX Runtime on CPU and CUDA, and its [`web/`](https://github.com/netra-ai-lab/Netra-OCR/tree/master/web) folder runs the same files in the browser (WebGPU / WebAssembly), with no PyTorch.
 
-Each folder is one bundle:
+Each folder is one model:
 
 | Folder | Task | What it is | Variants |
 |---|---|---|---|
@@ -45,35 +43,36 @@ Each folder is one bundle:
 ## Usage
 
 ```bash
-pip install "netra-runtime[cpu]"     # or [gpu] for CUDA
+pip install "netra-ocr[cpu]"     # or [gpu] for CUDA
 ```
 
 ```python
-import netra_runtime
+from netra_ocr.inference import Detector, Recognizer
 
-recognizer = netra_runtime.load("hf://Netra-Lab/Netra-OCR/recognition", device="auto")
+recognizer = Recognizer("hf://Netra-Lab/Netra-OCR/recognition")   # device: "auto" (default), "cpu", "cuda"
 print(recognizer("line.png").text)
 
-detector = netra_runtime.load("hf://Netra-Lab/Netra-OCR/lines")
+detector = Detector("hf://Netra-Lab/Netra-OCR/lines")
 for box in detector("page.png"):
     print(box.label, box.score, box.box)
 ```
 
 ```js
-import { load } from "@netra-ai-lab/runtime-web";
-const recognizer = await load("hf://Netra-Lab/Netra-OCR/recognition");
+// web/src/index.js in the Netra-OCR repo
+import { loadRecognizer } from "./web/src/index.js";
+const recognizer = await loadRecognizer("hf://Netra-Lab/Netra-OCR/recognition");
 const { text } = await recognizer.recognize(imageElement);
 ```
 
-`hf://` downloads only the folder you ask for, once, into the Hugging Face cache. For whole pages (detection, layout, reading order, Word/HTML/Markdown export) use the [`netra-ocr`](https://pypi.org/project/netra-ocr/) package or the Netra OCR Docker image, which load these bundles.
+`hf://` downloads only the folder you ask for, and only the files your device runs, once, into the Hugging Face cache. For whole pages (detection, layout, reading order, Word/HTML/Markdown export) use `netra_ocr.KhmerOCRPipeline`, the `netra_ocr serve` web app or the Netra OCR Docker image.
 
 ## Parity and speed
 
 Measured against the PyTorch models on `test_set/khob_eval` (325 lines) and 10 test pages, on an i7-13700KF and an RTX 3060.
 
 - **Recognizer:** text identical to PyTorch greedy decoding on 325/325 lines, on CPU and CUDA, single and batched. Per line: CPU 36.7 → about 13 ms, CUDA 23 → 12.8 ms.
-- **Blockwise:** identical text, 2.32 tokens per decoder pass. Not faster than the KV-cached greedy decoder on CPU or CUDA; faster on WebGPU (64 vs 86 ms per line).
-- **Full page pipeline:** CPU 2.18 → 1.14 s/page, GPU 1.24 → 0.70 s/page. 7 of 10 pages identical to the PyTorch pipeline, 0.43% characters different overall (letterbox resize is defined by the bundle spec rather than OpenCV, which moves about 1% of borderline boxes).
+- **Blockwise:** identical text, 2.32 tokens per decoder pass. Not faster than the KV-cached greedy decoder on CPU, CUDA or WebGPU (82 vs 85 ms per line in Chrome).
+- **Full page pipeline:** CPU 2.18 → 1.14 s/page, GPU 1.24 → 0.70 s/page. 7 of 10 pages identical to the PyTorch pipeline, 0.43% characters different overall (the letterbox resize is Netra OCR's own float64 bilinear resize rather than OpenCV's, which moves about 1% of borderline boxes).
 - **fp16:** default on CUDA for the detectors (DocLayout 65 → 39 ms). Not used on WebGPU, where it is broken in onnxruntime-web 1.31.
 - **Browser:** WebAssembly gives the same text on 325/325 lines and detector boxes at IoU 1.0; WebGPU in Chrome gave the same text on 100/100 lines.
 
@@ -83,11 +82,11 @@ The recognizer's CER is the PyTorch model's: see [Darayut/khmer-text-recognition
 
 | File | Contents |
 |---|---|
-| `*/netra-model.json` | manifest: task, components, graphs, variants, sha256 of every file |
+| `*/netra-model.json` | config: pre/post-processing settings, graphs, precision variants, sha256 of every file |
 | `*/*.onnx` | opset-18 graphs (`encoder`/`decoder_step` for recognition, `model` for detection) |
-| `recognition*/vocab.json` | tokenizer vocabulary (class names of the detectors are in the manifest) |
+| `recognition*/vocab.json` | tokenizer vocabulary (class names of the detectors are in the config) |
 
-The bundle format is specified in [Netra-Runtime/spec/bundle.md](https://github.com/netra-ai-lab/Netra-Runtime/blob/main/spec/bundle.md).
+The Python reader is [`netra_ocr/inference/`](https://github.com/netra-ai-lab/Netra-OCR/tree/master/netra_ocr/inference); the exporters are in [`training/netra_ocr_train/scripts/`](https://github.com/netra-ai-lab/Netra-OCR/tree/master/training/netra_ocr_train/scripts).
 
 ## License and attribution
 

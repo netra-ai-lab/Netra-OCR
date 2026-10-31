@@ -1,0 +1,24 @@
+{
+  "name": "@netra-ai-lab/netra-ocr-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Netra OCR in the browser: its recognizer and detectors on onnxruntime-web (WebGPU or WebAssembly).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src"
+  ],
+  "peerDependencies": {
+    "onnxruntime-web": ">=1.20"
+  },
+  "devDependencies": {
+    "onnxruntime-web": "^1.31.1"
+  },
+  "scripts": {
+    "test": "node test/unit.mjs"
+  },
+  "license": "MIT",
+  "repository": "github:netra-ai-lab/Netra-OCR"
+}

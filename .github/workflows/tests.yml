@@ -1,0 +1,64 @@
+# Fast tests on every push and pull request: the Python package (no models
+# needed) and the browser code's unit tests.
+#
+# A manual run (Actions → tests → Run workflow) can also run the slow tests,
+# which download the real models and check the text of every page in
+# test_images/ against tests/golden/.
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      slow:
+        description: "Also run the real-model tests (pytest --slow)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install ".[cpu,server]" pytest httpx
+
+      - name: Cache the models
+        if: inputs.slow
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ hashFiles('netra_ocr/models.py') }}
+
+      - name: Test
+        run: pytest tests -q ${{ inputs.slow && '--slow' || '' }}
+        env:
+          NETRA_DEVICE: cpu
+
+  web:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm test

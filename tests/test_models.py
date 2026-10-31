@@ -5,8 +5,8 @@ from netra_ocr import models
 
 def test_bundle_sources(monkeypatch):
     monkeypatch.delenv("NETRA_BUNDLES", raising=False)
-    assert models.source("ar") == "hf://Netra-Lab/Netra-OCR/recognition"
-    assert models.source("blockwise") == "hf://Netra-Lab/Netra-OCR/recognition-blockwise"
+    assert models.source("ar") == "hf://Netra-Lab/Netra-OCR/recognition@" + models.MODEL_REVISION
+    assert models.source("blockwise") == "hf://Netra-Lab/Netra-OCR/recognition-blockwise@" + models.MODEL_REVISION
     monkeypatch.setenv("NETRA_BUNDLES", "/srv/bundles")
     assert models.source("lines") == "/srv/bundles/lines"
     assert models.source("layout") == "/srv/bundles/layout"

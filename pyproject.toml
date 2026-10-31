@@ -23,21 +23,21 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Recognition",
 ]
 
-# Core dependencies: the whole OCR pipeline runs on Netra Runtime (ONNX
-# Runtime), with no PyTorch. Models are Netra Runtime bundles downloaded on
-# first use from https://huggingface.co/Netra-Lab/Netra-OCR. Pick exactly one
+# Core dependencies: the whole OCR pipeline runs on ONNX Runtime
+# (netra_ocr/inference/), with no PyTorch. Models are ONNX model folders
+# downloaded on first use from https://huggingface.co/Netra-Lab/Netra-OCR. Pick exactly one
 # ONNX Runtime build through the "cpu" or "gpu" extra (they can't be installed
 # side by side).
 dependencies = [
     "pillow>=10.2.0,<11.0.0",
     "numpy",
     "opencv-python",
-    "netra-runtime>=0.1.1",
+    "huggingface_hub>=0.20",
 ]
 
 [project.optional-dependencies]
-cpu = ["netra-runtime[cpu]>=0.1.1"]
-gpu = ["netra-runtime[gpu]>=0.1.1"]
+cpu = ["onnxruntime>=1.20"]
+gpu = ["onnxruntime-gpu>=1.20"]
 # The Tesseract detector backend (netra_ocr/engine.py) pulls in heavier deps and
 # also needs the system Tesseract binary installed separately.
 tesseract = ["pytesseract", "scipy", "scikit-image", "networkx"]
@@ -74,8 +74,12 @@ namespaces = false
 # Only the explicit package-data globs below are shipped in the wheel.
 include-package-data = false
 
-# Models are not bundled: they're Netra Runtime bundles downloaded on first use
+# Models are not bundled: they're ONNX model folders downloaded on first use
 # (see netra_ocr/models.py). Only the static UI ships.
 [tool.setuptools.package-data]
 "netra_ocr.server" = ["static/*.html", "static/*.css", "static/*.svg", "static/js/*.js", "static/fonts/*.woff2"]
 
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]

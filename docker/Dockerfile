@@ -6,7 +6,7 @@
 #   docker run -p 8000:8000 -v netra-data:/data netra-ocr
 #   then open http://localhost:8000
 #
-# CPU only, and no PyTorch: every model runs on Netra Runtime (ONNX Runtime).
+# CPU only, and no PyTorch: every model runs on ONNX Runtime (netra_ocr/inference).
 # A page takes about a second on an ordinary CPU.
 
 ARG PYTHON_VERSION=3.12
@@ -26,16 +26,10 @@ ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 
-# The runtime and its CPU ONNX Runtime build. Override to build against an
-# unreleased runtime, e.g.
-#   --build-arg NETRA_RUNTIME="netra-runtime[cpu] @ https://github.com/netra-ai-lab/Netra-Runtime/archive/<sha>.tar.gz"
-ARG NETRA_RUNTIME="netra-runtime[cpu]>=0.1.1"
-RUN pip install "${NETRA_RUNTIME}"
-
 WORKDIR /src
 COPY pyproject.toml readme.md LICENSE MANIFEST.in requirements.txt ./
 COPY netra_ocr ./netra_ocr
-RUN pip install ".[server]"
+RUN pip install ".[server,cpu]"
 
 # Prune what inference never needs (checked by docker/smoke_test.py below):
 # opencv-python (GUI build, needs libgl1) -> the same version, headless;

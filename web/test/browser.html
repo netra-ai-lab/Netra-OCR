@@ -1,0 +1,85 @@
+<!doctype html>
+<!--
+  Browser parity check (same comparisons as parity.mjs) for WebGPU / WebAssembly.
+  Serve a folder containing web/, the model folders and make_fixtures.py output, then open
+    browser.html?models=/models/&fixtures=/fixtures/&device=webgpu
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>netra-ocr-web parity</title>
+  <script type="importmap">
+    {"imports": {"onnxruntime-web": "../node_modules/onnxruntime-web/dist/ort.all.min.mjs"}}
+  </script>
+</head>
+<body>
+<pre id="out">running…</pre>
+<script type="module">
+  import { loadDetector, loadRecognizer } from "../src/index.js";
+
+  const params = new URLSearchParams(location.search);
+  const models = params.get("models"), fixturesUrl = params.get("fixtures");
+  const device = params.get("device") ?? "auto";
+  const maxLines = Number(params.get("lines") ?? 100);
+  const recognizers = (params.get("recognizers") ?? "recognition,recognition-blockwise").split(",");
+  const out = document.getElementById("out");
+  const lines = [];
+  const log = (s) => { lines.push(s); out.textContent = lines.join("\n"); };
+
+  const fixtures = await (await fetch(`${fixturesUrl}fixtures.json`)).json();
+  const pixels = async (entry) => ({
+    data: new Uint8Array(await (await fetch(fixturesUrl + entry.file)).arrayBuffer()),
+    width: entry.width, height: entry.height, channels: 3,
+  });
+  const iou = (a, b) => {
+    const w = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
+    const h = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+    return (w * h) / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - w * h);
+  };
+
+  try {
+    log(`navigator.gpu: ${Boolean(navigator.gpu)}, requested device: ${device}`);
+    for (const name of recognizers) {
+      const recognizer = await loadRecognizer(`${models}${name}/`, { device });
+      const entries = fixtures.lines.slice(0, maxLines);
+      const images = await Promise.all(entries.map(pixels));
+      await recognizer.recognize(images[0]);
+      let same = 0, worst = 0;
+      const start = performance.now();
+      for (const [i, entry] of entries.entries()) {
+        const got = await recognizer.recognize(images[i]);
+        if (got.text === entry[name].text) same++;
+        worst = Math.max(worst, Math.abs(got.confidence - entry[name].confidence));
+      }
+      log(`${name} [${recognizer.device}${recognizer.variant ? ", " + recognizer.variant : ""}]: ${same}/${entries.length} identical text, `
+          + `max confidence diff ${worst.toExponential(1)}, ${((performance.now() - start) / entries.length).toFixed(1)} ms/line`);
+    }
+    for (const name of ["lines", "layout"]) {
+      for (const variant of [undefined, "fp16"]) {
+        const detector = await loadDetector(`${models}${name}/`, { device, variant: variant ?? null });
+        try {
+          const images = await Promise.all(fixtures.pages.map(pixels));
+          await detector.detect(images[0]);
+          let want = 0, got = 0, matched = 0;
+          const start = performance.now();
+          for (const [i, entry] of fixtures.pages.entries()) {
+            const found = await detector.detect(images[i]);
+            want += entry[name].length; got += found.length;
+            matched += entry[name].filter((r) => found.some((d) => d.classId === r.classId && iou(d.box, r.box) > 0.9)).length;
+          }
+          log(`${name} [${detector.device}, ${detector.variant ?? "fp32"}]: python(cpu)=${want} browser=${got} matched(IoU>0.9)=${matched}, `
+              + `${((performance.now() - start) / fixtures.pages.length).toFixed(0)} ms/page`);
+        } catch (e) {
+          // fp16 graphs fail on WebGPU in onnxruntime-web 1.31; report and go on.
+          log(`${name} [${detector.device}, ${detector.variant ?? "fp32"}]: failed: ${String(e.message ?? e).split("\n")[0]}`);
+        }
+      }
+    }
+    log("DONE");
+  } catch (e) {
+    log(`ERROR ${e.stack ?? e}`);
+  }
+  document.title = "finished";
+</script>
+</body>
+</html>

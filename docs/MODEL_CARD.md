@@ -138,7 +138,7 @@ texts = recognize_batch(line_crops, batch_size=8)          # many lines; the mod
 text = recognize("line_crop.png", decoder="blockwise")     # same text
 ```
 
-The package runs ONNX exports of these checkpoints on [Netra Runtime](https://github.com/netra-ai-lab/Netra-Runtime), from [Netra-Lab/Netra-OCR](https://huggingface.co/Netra-Lab/Netra-OCR); they download on first use and are cached. Beam search needs the PyTorch checkpoints here.
+The package runs ONNX exports of these checkpoints on [ONNX Runtime](https://onnxruntime.ai), from [Netra-Lab/Netra-OCR](https://huggingface.co/Netra-Lab/Netra-OCR); they download on first use and are cached. Beam search needs the PyTorch checkpoints here.
 
 **Whole documents.**
 
