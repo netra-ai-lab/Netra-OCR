@@ -78,3 +78,8 @@ include-package-data = false
 # (see netra_ocr/models.py). Only the static UI ships.
 [tool.setuptools.package-data]
 "netra_ocr.server" = ["static/*.html", "static/*.css", "static/*.svg", "static/js/*.js", "static/fonts/*.woff2"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
