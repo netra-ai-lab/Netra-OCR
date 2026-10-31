@@ -1,14 +1,20 @@
-"""Download every model the app needs into the Hugging Face cache (HF_HOME).
+"""Download Netra OCR's model bundles into /models/netra-ocr (NETRA_BUNDLES).
 
-Run at image build time so the container works offline (HF_HUB_OFFLINE=1).
-The YOLO text-line detector is bundled in the wheel and needs no download.
+Run at image build time so the container works offline. The folder has one
+Netra Runtime bundle per model (see netra_ocr/models.py), with only the graphs
+the CPU runs (no fp16 copies).
 """
 
-from huggingface_hub import hf_hub_download
+import shutil
+import sys
+from pathlib import Path
 
-from netra_ocr.layout.doclayout import DEFAULT_FILENAME as LAYOUT_FILE, DEFAULT_REPO as LAYOUT_REPO
-from netra_ocr.recognition.recognize_text import DECODER_FILENAMES, DEFAULT_MODEL_REPO
+import netra_runtime
 
-for filename in DECODER_FILENAMES.values():
-    print("recognizer:", hf_hub_download(DEFAULT_MODEL_REPO, filename))
-print("layout:", hf_hub_download(LAYOUT_REPO, LAYOUT_FILE))
+from netra_ocr.models import BUNDLES, MODEL_REPO
+
+target = Path(sys.argv[1] if len(sys.argv) > 1 else "/models/netra-ocr")
+for folder in BUNDLES.values():
+    # Copied out of the Hugging Face cache, whose files are symlinks to blobs.
+    shutil.copytree(netra_runtime.resolve(f"{MODEL_REPO}/{folder}", device="cpu"), target / folder)
+    print(target / folder)

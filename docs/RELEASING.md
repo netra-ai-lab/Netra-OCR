@@ -26,6 +26,13 @@ publishes it whenever a version tag is pushed.
 
 ## Each release
 
+0. **If the models or the runtime changed:** publish them first, because the
+   package and the image download them at install/build time.
+   - Models: upload the bundle folders to the Hugging Face repo
+     `Netra-Lab/Netra-OCR` (card source: `docs/RUNTIME_MODEL_CARD.md`).
+   - Runtime: release `netra-runtime` from the Netra-Runtime repo
+     (`uv build && uv publish`), then raise the `netra-runtime>=` floor in
+     `pyproject.toml` and the `NETRA_RUNTIME` default in `docker/Dockerfile`.
 1. Bump `version` in `pyproject.toml` (the app shows it in the footer and at
    `/v1/info`).
 2. Commit and push to `master`.
@@ -55,8 +62,8 @@ Measured on the 1.1.0 image (i7-13700KF, 24 threads, Docker Desktop):
 
 | | |
 | :--- | :--- |
-| Download | ~660 MB compressed; ~1.7 GB of layers on disk (Docker Desktop shows ~2.4 GB) |
-| Memory | ~0.8 GB idle, 1.7 GB peak on a 10-page PDF — recommend 4 GB for Docker |
-| Speed | 1.4–3.2 s per page; 24.6 s for a 10-page PDF. Slower CPUs take longer |
+| Download | ~520 MB compressed; ~1.6 GB on disk (`docker image ls`) |
+| Memory | ~0.4 GB with the models loaded, 2.3 GB peak on a 10-page PDF — recommend 4 GB for Docker |
+| Speed | ~1.1 s per page (0.8–1.7 s, i7-13700KF); 12.6 s for a 10-page PDF. Slower CPUs take longer |
 | GPU | Not needed (CPU-only image) |
 | Network | None after the pull: every model is inside the image |

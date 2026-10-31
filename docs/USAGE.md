@@ -1,25 +1,25 @@
 # Usage reference
 
-Everything the README's Usage section leaves out: the recognizer on its own, the full pipeline, detectors, decoders, output formats, every option, the web app's settings and the standalone Hugging Face script.
+Everything the README's Usage section leaves out: the recognizer on its own, the full pipeline, detectors, decoders, models and devices, output formats, every option, the web app's settings and the standalone Hugging Face script.
 
 ## 1. Recognizer only
 
-If you already have line crops from your own detector, layout engine or manual cropping, you don't need Netra-OCR's detectors or their extras. The recognizer takes an image (a path or a PIL `Image`, cropped to one text line) and returns the text.
+If you already have line crops from your own detector, layout engine or manual cropping, you don't need Netra-OCR's detectors. The recognizer takes an image (a path or a PIL `Image`, cropped to one text line) and returns the text.
 
 ```python
 from netra_ocr.recognition import recognize, recognize_batch
 
-text = recognize("line_crop.png", beam_width=3)                    # one crop, path or PIL.Image
-texts = recognize_batch(my_line_crops, beam_width=1, batch_size=8)  # many crops; the model stays loaded
+text = recognize("line_crop.png")                                  # one crop, path or PIL.Image
+texts = recognize_batch(my_line_crops, batch_size=16)              # many crops; the model stays loaded
 
-text = recognize("line_crop.png", decoder="blockwise")             # same text, usually faster
-text = recognize("line_crop.png", model_path="weight/my_checkpoint.pth", vocab_path="my_vocab.json")
+text = recognize("line_crop.png", decoder="blockwise")             # same text
+text = recognize("line_crop.png", bundle="bundles/my-recognizer")  # your own exported bundle
 ```
 
 Command line, one image, no detection step:
 
 ```bash
-python -m netra_ocr.recognition.recognize_text --image line_crop.png --beam 3
+python -m netra_ocr.recognition.recognize_text --image line_crop.png --decoder blockwise
 ```
 
 To bring your own detector, implement `netra_ocr.detectors.base.BaseTextDetector` (one method, `detect(image_path) -> list[DetectedLine]`) and pass its `DetectedLine.crop` values to `recognize_batch`. You don't need to register it in `DETECTOR_REGISTRY` or use `KhmerOCRPipeline` unless you want its output formatting and CLI.
@@ -35,8 +35,7 @@ pipeline = KhmerOCRPipeline(detector="yolo", conf=0.4, decoder="blockwise")   # 
 result_text = pipeline.process_image(
     image_path="document.png",
     output_path="document.docx",   # the extension picks the format
-    beam_width=1,
-    batch_size=8,
+    batch_size=16,
     save_debug=False,
 )
 ```
@@ -47,8 +46,8 @@ netra_ocr --image scan.jpg --output result.txt --detector legacy --pad 4    # cl
 netra_ocr --image scan.jpg --output result.docx --detector yolo             # Word, logos embedded as images
 netra_ocr --image scan.jpg --output result.json --detector yolo             # text + bounding box per line
 netra_ocr --image scan.jpg --output result.txt --detector yolo --conf 0.4   # YOLO confidence threshold (default 0.25)
-netra_ocr --image scan.jpg --output result.txt --detector tesseract --beam 5 --batch_size 16
-netra_ocr --image scan.jpg --output result.txt --decoder blockwise          # same text, usually faster
+netra_ocr --image scan.jpg --output result.txt --detector tesseract --batch_size 32
+netra_ocr --image scan.jpg --output result.txt --decoder blockwise          # same text
 netra_ocr --image scan.jpg --output result.txt --detector yolo --debug      # per-line .txt and logo .png in debug_<name>/
 ```
 
@@ -58,7 +57,7 @@ netra_ocr --image scan.jpg --output result.txt --detector yolo --debug      # pe
 from netra_ocr.ocr_engine import KhmerOCRPipeline
 from netra_ocr.exporters import save_document
 
-pipeline = KhmerOCRPipeline(detector="yolo", layout=True)   # needs the "layout" extra
+pipeline = KhmerOCRPipeline(detector="yolo", layout=True)
 doc = pipeline.process_document("letter.pdf")               # images, multi-page TIFF or PDF ("pdf" extra)
 for block in doc.blocks:                                    # heading / paragraph / table / figure / caption / ...
     print(block["type"], block.get("text") or block.get("rows"))
@@ -78,18 +77,29 @@ The output format follows the file extension:
 
 | Detector | Requires | Description |
 | :--- | :--- | :--- |
-| `yolo` (default) | `pip install "netra-ocr[yolo]"` | YOLOv26s trained on Khmer documents. Detects text lines (class 0) and logos (class 1). Logos are embedded in `.docx` output; other formats get text only. Text boxes are widened to cover the full line. The weights (~20 MB) ship with the package; only the `ultralytics` runtime is a separate install. |
+| `yolo` (default) | nothing extra | YOLOv26s trained on Khmer documents. Detects text lines (class 0) and logos (class 1). Logos are embedded in `.docx` output; other formats get text only. Text boxes are widened to cover the full line. The model (~38 MB) downloads on first use, like the others (see below). |
 | `tesseract` | `pip install "netra-ocr[tesseract]"` + the system Tesseract binary | Tesseract plus graph clustering. No extra model. |
 | `legacy` | nothing extra | Classic computer vision: MSER, gradient analysis and multi-channel binarisation. Accepts `pad`. |
 
 ### Decoders
 
-Both decoders download from the [model page](https://huggingface.co/Darayut/khmer-text-recognition) and share one vocabulary, so switching never changes the text.
+Both decoders share one model and vocabulary, so switching never changes the text.
 
-| Decoder | Checkpoint | Notes |
+| Decoder | Bundle | Notes |
 | :--- | :--- | :--- |
-| `ar` (default) | `khmerocr_cluster_ar.pth` | Plain autoregressive decoding, one token per step. Supports beam search. |
-| `blockwise` | `khmerocr_cluster_blockwise.pth` | [Stern et al. 2018](https://arxiv.org/abs/1811.03115) blockwise parallel decoding: proposes several tokens per step and verifies them against the same decoder, so the output equals greedy `ar`, 1.55× faster on KHOB. Greedy only; `beam_width` is ignored. |
+| `ar` (default) | `recognition/` | Greedy autoregressive decoding, one token per step, with a key/value cache so each step only runs the new token. |
+| `blockwise` | `recognition-blockwise/` | [Stern et al. 2018](https://arxiv.org/abs/1811.03115) blockwise parallel decoding: proposes several tokens per step (2.3 on average) and verifies them against the same decoder, so the output equals `ar`. With the cached decoder that isn't faster on a CPU or CUDA GPU, where steps are already cheap; it is faster in the browser on WebGPU. |
+
+### Models and devices
+
+Every model runs on [Netra Runtime](https://github.com/netra-ai-lab/Netra-Runtime) (ONNX Runtime); PyTorch isn't needed. The models are Netra Runtime bundles in the Hugging Face repo [Netra-Lab/Netra-OCR](https://huggingface.co/Netra-Lab/Netra-OCR), one folder each (`lines/`, `layout/`, `recognition/`, `recognition-blockwise/`). Each one downloads the first time it's used, only the files the device needs, into the Hugging Face cache (`HF_HOME`, default `~/.cache/huggingface`); after that, `HF_HUB_OFFLINE=1` runs without a network.
+
+| Setting | Default | Meaning |
+| :--- | :--- | :--- |
+| `NETRA_DEVICE` | `auto` | `auto` uses an NVIDIA GPU when the `gpu` extra is installed and one is present, else the CPU. Or `cpu`, `cuda`, `cuda:1`, `tensorrt`, `openvino`. |
+| `NETRA_BUNDLES` | *(unset)* | A local folder with the same four subfolders, used instead of Hugging Face (the Docker image does this). |
+
+Install exactly one ONNX Runtime build: `pip install "netra-ocr[cpu]"` or `pip install "netra-ocr[gpu]"`. Their packages conflict, so don't install both.
 
 ### Post-processing
 
@@ -105,8 +115,7 @@ Raw decoder output is cleaned of common gibberish: control and replacement chara
 | `pad` | `int` | `None` (auto) | Pixels added around each box. For `yolo` and `legacy`. |
 | `output_path` | `str` | `None` | Destination file; the extension picks `.txt`, `.md`, `.json` or `.docx`. |
 | `decoder` | `str` | `ar` | `ar` or `blockwise` (same text, usually faster). |
-| `beam_width` | `int` | `1` | `1` is greedy. Higher values trade speed for accuracy. Ignored by `blockwise`. |
-| `batch_size` | `int` | `8` | Text lines per recognition batch. |
+| `batch_size` | `int` | `16` | Text lines per recognition batch. |
 | `save_debug` | `bool` | `False` | Write per-segment `.txt` and logo `.png` files to `debug_<name>/`. |
 
 ## 3. Web app and REST API
@@ -114,7 +123,7 @@ Raw decoder output is cleaned of common gibberish: control and replacement chara
 With Docker, see the README's Quick start. Without Docker:
 
 ```bash
-pip install "netra-ocr[server]"
+pip install "netra-ocr[server,cpu]"     # or [server,gpu]
 netra_ocr serve            # http://localhost:8000; add --host 0.0.0.0 to allow other machines
 ```
 
@@ -139,10 +148,13 @@ curl -OJ "http://localhost:8000/v1/jobs/<id>/export?format=docx"    # docx | htm
 | `NETRA_MAX_UPLOAD_MB` / `NETRA_MAX_PDF_PAGES` | `50` / `100` | Upload limits. |
 | `NETRA_JOB_TTL_HOURS` | `24` | Documents and their edits are deleted this long after the last change. |
 | `NETRA_DETECTOR` / `NETRA_DECODER` | `yolo` / `ar` | Defaults for new uploads. |
+| `NETRA_DEVICE` / `NETRA_BUNDLES` | `auto` / *(unset)* | See [Models and devices](#models-and-devices). |
 
 **Building the image yourself.** Run `docker compose up --build`. The build ends with a smoke test that runs every detector, both decoders, PDF input and every export format, so a broken image fails to build instead of failing on your first upload.
 
 ## 4. Without the package: the Hugging Face script
+
+The original PyTorch checkpoints, with a standalone script (these need PyTorch and support beam search):
 
 ```bash
 pip install torch torchvision transformers pillow huggingface_hub

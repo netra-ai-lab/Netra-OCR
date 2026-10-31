@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netra-ocr"
-version = "1.1.1"
+version = "1.2.0"
 description = "Khmer OCR engine using a Squeeze-and-Excitation Transformer network for text-line recognition, with pluggable text detectors (YOLO, Tesseract, classic CV)."
 readme = "readme.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Nhem Darayut", email = "darayutnhem009@gmail.com"},
 ]
-keywords = ["khmer", "ocr", "text-recognition", "transformer", "deep-learning", "pytorch"]
+keywords = ["khmer", "ocr", "text-recognition", "transformer", "deep-learning", "onnx"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -23,49 +23,48 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Recognition",
 ]
 
-# Core dependencies — enough to use the recognizer standalone
-# (netra_ocr.recognition.recognize_text.recognize / recognize_batch) on your
-# own crops, plus the classic-CV ("legacy") detector, which is pure
-# cv2/numpy and needs nothing extra. The YOLO and Tesseract detectors pull in
-# additional deps -- see the "yolo" / "tesseract" extras below -- so a plain
-# `pip install netra-ocr` does not require them.
+# Core dependencies: the whole OCR pipeline runs on Netra Runtime (ONNX
+# Runtime), with no PyTorch. Models are Netra Runtime bundles downloaded on
+# first use from https://huggingface.co/Netra-Lab/Netra-OCR. Pick exactly one
+# ONNX Runtime build through the "cpu" or "gpu" extra (they can't be installed
+# side by side).
 dependencies = [
     "pillow>=10.2.0,<11.0.0",
     "numpy",
     "opencv-python",
-    "tqdm",
-    "transformers>=4.47.0,<5.0.0",
-    "torch>=2.0",
-    "torchvision",
-    "huggingface_hub>=0.20",
+    "netra-runtime>=0.1.0",
 ]
 
 [project.optional-dependencies]
-# The bundled YOLO detector backend (netra_ocr/detectors/yolo.py).
-yolo = ["ultralytics"]
+cpu = ["netra-runtime[cpu]>=0.1.0"]
+gpu = ["netra-runtime[gpu]>=0.1.0"]
 # The Tesseract detector backend (netra_ocr/engine.py) pulls in heavier deps and
 # also needs the system Tesseract binary installed separately.
 tesseract = ["pytesseract", "scipy", "scikit-image", "networkx"]
-# .docx output support (netra_ocr/output_formatters.py) -- only needed when
-# using the full KhmerOCRPipeline with a .docx output path; not required by
-# the recognizer or any detector on its own.
+# .docx output support.
 docx = ["python-docx"]
-# DocLayout-YOLO page layout analysis (KhmerOCRPipeline(layout=True)).
-# Note: doclayout-yolo, like ultralytics, is AGPL-3.0 -- see THIRD_PARTY_LICENSES.md.
-layout = ["doclayout-yolo"]
 # PDF input (rendered with pdfium).
 pdf = ["pypdfium2"]
-# The web app + REST API (netra_ocr serve). Pulls in everything it uses.
-server = ["fastapi", "uvicorn[standard]", "python-multipart", "netra-ocr[yolo,tesseract,layout,pdf,docx]"]
-# Kept for backwards compatibility: the old Flask UI was replaced by the server.
+# The web app + REST API (netra_ocr serve). Add "cpu" or "gpu" for the runtime.
+server = ["fastapi", "uvicorn[standard]", "python-multipart", "netra-ocr[tesseract,pdf,docx]"]
+# Kept for backwards compatibility: the YOLO detector and layout analysis are
+# part of the core now, and the old Flask UI was replaced by the server.
+yolo = []
+layout = []
 web = ["netra-ocr[server]"]
-# Everything: every detector, layout analysis, PDF, all output formats, the server.
-full = ["netra-ocr[yolo,tesseract,docx,layout,pdf,server]"]
+# Everything, on CPU.
+full = ["netra-ocr[cpu,tesseract,docx,pdf,server]"]
+# Research only: training, evaluation and exporting models to bundles
+# (netra_ocr/recognition/scripts, netra-runtime export-yolo). Note:
+# ultralytics and doclayout-yolo are AGPL-3.0 -- see THIRD_PARTY_LICENSES.md.
+research = ["torch>=2.0", "torchvision", "tqdm", "netra-runtime[export]>=0.1.0",
+            "ultralytics", "doclayout-yolo"]
 
 [project.urls]
 Homepage = "https://github.com/netra-ai-lab/Khmer-OCR-CNN-Transformer"
 Repository = "https://github.com/netra-ai-lab/Khmer-OCR-CNN-Transformer"
-"Model Download" = "https://huggingface.co/Darayut/khmer-text-recognition"
+"Model Download" = "https://huggingface.co/Netra-Lab/Netra-OCR"
+"PyTorch weights" = "https://huggingface.co/Darayut/khmer-text-recognition"
 
 [project.scripts]
 netra_ocr = "netra_ocr.ocr_engine:main"
@@ -76,7 +75,7 @@ include = ["netra_ocr*"]
 # evaluate_*.py, finetune_vlm_khmer.py, ...), several of which import deps
 # (datasets, unsloth, ...) that aren't declared anywhere for the published
 # package. Kept in git, excluded from the wheel -- production installs only
-# need the inference path (detectors + recognition/model + predictor).
+# need the inference path (netra_ocr.models + detectors + recognize_text).
 exclude = ["netra_ocr.recognition.scripts", "netra_ocr.recognition.scripts.*"]
 # Without this, setuptools treats any directory under netra_ocr* as an
 # implicit PEP 420 namespace package even without __init__.py, which would
@@ -90,12 +89,9 @@ namespaces = false
 # below. Only the explicit package-data globs are shipped in the wheel.
 include-package-data = false
 
-# The YOLO detector weights are bundled (~20 MB) since they're small and needed
-# immediately. The recognition weight is NOT bundled -- it's ~77 MB, so it's
-# downloaded on first use from https://huggingface.co/Darayut/khmer-text-recognition
-# and cached locally by huggingface_hub instead. Only the (tiny) vocab JSON
-# files are bundled here.
+# Models are not bundled: they're Netra Runtime bundles downloaded on first use
+# (see netra_ocr/models.py). Only the static UI and small JSON files ship.
 [tool.setuptools.package-data]
-"netra_ocr.detectors" = ["yolo26s_best/best.pt", "yolo26s_best/args.yaml"]
 "netra_ocr.recognition" = ["*.json"]
 "netra_ocr.server" = ["static/*.html", "static/*.css", "static/*.svg", "static/js/*.js", "static/fonts/*.woff2"]
+

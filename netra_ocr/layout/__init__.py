@@ -1,7 +1,6 @@
 """Page layout analysis (DocLayout-YOLO) and reading-order utilities.
 
-``DocLayoutYoloAnalyzer`` needs the 'layout' extra; importing this package
-does not.
+``DocLayoutYoloAnalyzer`` (in ``.doclayout``) loads its model on first use.
 """
 
 from .base import BaseLayoutAnalyzer, LayoutRegion

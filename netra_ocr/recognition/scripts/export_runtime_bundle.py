@@ -22,7 +22,7 @@ supports.
 Usage:
     python -m netra_ocr.recognition.scripts.export_runtime_bundle \
         --model netra_ocr/recognition/weight/khmerocr_cluster_ar.pth \
-        --out bundles/khmer-text-recognition --check test_set/khob_eval
+        --out bundles/recognition --check test_set/khob_eval
 """
 
 import argparse
@@ -40,10 +40,10 @@ from ..config import OCRConfig
 from ..model.blockwise_decoder import BlockwiseParallelWrapper
 from ..model.model import KhmerOCR
 from ..predictor import OCRPredictor
-from ..recognize_text import DEFAULT_VOCAB_PATH
 from ..utils import autodetect_config
 
 OPSET = 18
+DEFAULT_VOCAB_PATH = Path(__file__).resolve().parents[1] / "char2idx_cluster.json"
 
 
 def _attention(q, k, v, heads, mask=None):
@@ -275,7 +275,7 @@ def main():
     parser.add_argument("--model", required=True, help="Recognition checkpoint (.pth)")
     parser.add_argument("--vocab", default=DEFAULT_VOCAB_PATH)
     parser.add_argument("--out", required=True, type=Path, help="Bundle output directory")
-    parser.add_argument("--name", default="khmer-text-recognition")
+    parser.add_argument("--name", default="netra-ocr-recognition")
     parser.add_argument("--version", default="1.0.0")
     parser.add_argument("--check", type=Path, help="Test set ({images/,labels/}) for a parity check")
     parser.add_argument("--devices", nargs="+", default=["cpu"], help="Devices for --check")

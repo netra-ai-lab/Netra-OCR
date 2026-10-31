@@ -6,9 +6,8 @@
 #   docker run -p 8000:8000 -v netra-data:/data netra-ocr
 #   then open http://localhost:8000
 #
-# CPU only: the 17M-parameter recognizer and the YOLO detectors are small
-# enough that a page takes a few seconds on an ordinary CPU, and leaving out
-# CUDA keeps the image several gigabytes smaller.
+# CPU only, and no PyTorch: every model runs on Netra Runtime (ONNX Runtime).
+# A page takes about a second on an ordinary CPU.
 
 ARG PYTHON_VERSION=3.12
 
@@ -21,48 +20,42 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libglib2.0-0 tesseract-ocr tesseract-ocr-khm && \
     rm -rf /var/lib/apt/lists/*
 
-# ── build: virtualenv with CPU torch + netra-ocr[server], pruned ─────────────
+# ── build: virtualenv with netra-ocr[server] on ONNX Runtime (CPU), pruned ──
 FROM base AS build
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 
-# CPU torch first, so nothing later pulls the CUDA build from PyPI.
-RUN pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.12.*" "torchvision==0.27.*"
+# The runtime and its CPU ONNX Runtime build. Override to build against an
+# unreleased runtime, e.g.
+#   --build-arg NETRA_RUNTIME="netra-runtime[cpu] @ https://github.com/netra-ai-lab/Netra-Runtime/archive/<sha>.tar.gz"
+ARG NETRA_RUNTIME="netra-runtime[cpu]>=0.1.0"
+RUN pip install "${NETRA_RUNTIME}"
 
 WORKDIR /src
 COPY pyproject.toml readme.md LICENSE MANIFEST.in requirements.txt ./
 COPY netra_ocr ./netra_ocr
 RUN pip install ".[server]"
 
-# Prune what inference never imports (checked by docker/smoke_test.py below):
-# - opencv-python (GUI build, needs libgl1) -> the same version, headless;
-# - training/analysis-only deps of ultralytics / doclayout-yolo / netra-ocr:
-#   polars, seaborn, albumentations, transformers (+ their own deps);
-# - torch's C++ headers, test libraries and protoc; bundled test suites; pip.
-# matplotlib and pandas stay: doclayout-yolo imports them at startup.
+# Prune what inference never needs (checked by docker/smoke_test.py below):
+# opencv-python (GUI build, needs libgl1) -> the same version, headless;
+# bundled test suites; pip.
 RUN SP=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])") && \
     OCV=$(pip show opencv-python | awk '/^Version/{print $2}') && \
-    pip uninstall -y opencv-python opencv-python-headless \
-        polars polars-runtime-32 seaborn albumentations albucore \
-        transformers tokenizers safetensors && \
+    pip uninstall -y opencv-python opencv-python-headless && \
     pip install --no-deps "opencv-python-headless==${OCV}" && \
-    rm -rf "$SP"/torch/include "$SP"/torch/bin/protoc* "$SP"/torch/bin/test_* \
-           "$SP"/torch/lib/libjitbackend_test.so "$SP"/torch/lib/libtorchbind_test.so \
-           "$SP"/torch/lib/libbackend_with_compiler.so "$SP"/torch/lib/libaoti_custom_ops.so && \
     find "$SP" -depth -type d \( -name tests -o -name testing_data \) -path "*/scipy/*" -exec rm -rf {} + && \
-    find "$SP" -depth -type d -name tests -path "*/pandas/*" -exec rm -rf {} + && \
+    find "$SP" -depth -type d -name tests -path "*/skimage/*" -exec rm -rf {} + && \
     find /opt/venv -depth -name __pycache__ -type d -exec rm -rf {} + && \
     pip uninstall -y pip
 
-# ── weights: everything the app loads, fetched once at build time ────────────
-# Then run the whole pipeline once against the pruned environment: a prune
-# that removed something needed fails here, not on the first upload.
+# ── weights: the model bundles, fetched once at build time ──────────────────
+# Then run the whole pipeline once against the pruned environment, offline:
+# a prune that removed something needed fails here, not on the first upload.
 FROM build AS weights
-ENV HF_HOME=/models YOLO_CONFIG_DIR=/tmp/ultralytics MPLCONFIGDIR=/tmp/matplotlib
 COPY docker/fetch_weights.py docker/smoke_test.py /tmp/
-RUN python /tmp/fetch_weights.py && rm -rf /models/xet /models/hub/.locks && \
-    cd /tmp && HF_HUB_OFFLINE=1 python /tmp/smoke_test.py
+RUN HF_HOME=/tmp/hf python /tmp/fetch_weights.py /models/netra-ocr && rm -rf /tmp/hf && \
+    cd /tmp && NETRA_BUNDLES=/models/netra-ocr HF_HUB_OFFLINE=1 python /tmp/smoke_test.py
 
 # ── runtime ──────────────────────────────────────────────────────────────────
 FROM base AS runtime
@@ -72,23 +65,20 @@ LABEL org.opencontainers.image.title="Netra OCR" \
       org.opencontainers.image.licenses="MIT AND AGPL-3.0-only"
 
 RUN useradd --create-home --uid 10001 netra \
- && mkdir -p /data /home/netra/.config/ultralytics \
- && chown -R netra /data /home/netra/.config
+ && mkdir -p /data \
+ && chown -R netra /data
 COPY --from=build /opt/venv /opt/venv
 COPY --from=weights /models /models
 
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    HF_HOME=/models \
+    NETRA_BUNDLES=/models/netra-ocr \
     HF_HUB_OFFLINE=1 \
     NETRA_DATA_DIR=/data \
     NETRA_HOST=0.0.0.0 \
     NETRA_PORT=8000 \
-    NETRA_DEVICE=cpu \
-    YOLO_CONFIG_DIR=/home/netra/.config/ultralytics \
-    YOLO_OFFLINE=1 \
-    MPLCONFIGDIR=/home/netra/.config/matplotlib
+    NETRA_DEVICE=cpu
 
 USER netra
 VOLUME ["/data"]

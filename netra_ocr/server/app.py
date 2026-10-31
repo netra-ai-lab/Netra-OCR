@@ -17,6 +17,7 @@ from fastapi import Body, FastAPI, File, Form, Header, HTTPException, Query, Req
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from .. import models
 from ..document import DocumentValidationError
 from ..exporters import FORMATS, export
 from ..io import count_pages, sniff_kind
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 DETECTORS = ("yolo", "legacy", "tesseract")
-DECODERS = ("ar", "blockwise")
+DECODERS = models.DECODERS
 
 
 def _package_version() -> str:
@@ -101,13 +102,12 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     @app.get("/v1/info", summary="Server, model and limit information")
     def info():
-        import torch
-        from ..recognition.config import _default_device, describe_device
+        device = models.device()
         return {
             "version": _package_version(),
-            "device": _default_device(),
-            "device_name": describe_device(),
-            "cuda": torch.cuda.is_available(),
+            "device": device,
+            "device_name": models.describe_device(),
+            "cuda": device.startswith(("cuda", "tensorrt")),
             "models_ready": jobs().models_ready.is_set(),
             "detectors": list(DETECTORS),
             "decoders": list(DECODERS),
@@ -129,7 +129,6 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         detector: str = Form(None, description="Text-line detector: yolo | legacy | tesseract"),
         decoder: str = Form(None, description="Recognition decoder: ar (default) | blockwise"),
         include_headers_footers: bool = Form(True),
-        beam_width: int = Form(1, ge=1, le=5, description="Beam width for the ar decoder (1 = greedy)"),
         conf: Optional[float] = Form(None, ge=0.01, le=0.99, description="YOLO line-detector confidence"),
         wait: bool = Form(True, description="For single images, wait for the result instead of returning 202"),
     ):
@@ -157,7 +156,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
         options = JobOptions(layout=layout, detector=detector, decoder=decoder,
                              include_headers_footers=include_headers_footers,
-                             beam_width=beam_width, conf=conf if detector == "yolo" else None)
+                             conf=conf if detector == "yolo" else None)
         job = jobs().create(data, _safe_basename(file.filename), kind, pages, options)
 
         if wait and pages == 1:

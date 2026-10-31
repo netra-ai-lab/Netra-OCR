@@ -38,7 +38,6 @@ class JobOptions:
     detector: str = "yolo"
     decoder: str = "ar"
     include_headers_footers: bool = True
-    beam_width: int = 1
     conf: Optional[float] = None
 
 
@@ -101,7 +100,9 @@ class JobManager:
             try:
                 with open(os.path.join(self.root, name, "job.json"), encoding="utf-8") as f:
                     raw = json.load(f)
-                raw["options"] = JobOptions(**raw.get("options", {}))
+                # Ignore options that no longer exist (e.g. beam_width, before 1.2).
+                known = JobOptions.__dataclass_fields__
+                raw["options"] = JobOptions(**{k: v for k, v in raw.get("options", {}).items() if k in known})
                 job = Job(**raw)
             except Exception:
                 logger.warning("Skipping unreadable job directory %s", name)
@@ -222,16 +223,11 @@ class JobManager:
 
     def _do_warmup(self) -> None:
         try:
-            from .. import runtime_engine
-            from ..recognition.config import describe_device
-            from ..recognition.recognize_text import _get_predictor
+            from .. import models
             s = self.settings
             self._pipeline(JobOptions(layout=True, detector=s.default_detector, decoder=s.default_decoder))
-            if runtime_engine.engine() == "runtime":
-                runtime_engine.load(s.default_decoder)
-            else:
-                _get_predictor(decoder=s.default_decoder)
-            logger.info("Models loaded on %s", describe_device())
+            models.load(s.default_decoder)
+            logger.info("Models loaded on %s", models.describe_device())
         except Exception:
             logger.exception("Model warmup failed; models will load on the first job")
         finally:
@@ -255,8 +251,7 @@ class JobManager:
         try:
             o = job.options
             pipeline = self._pipeline(o)
-            doc = pipeline.process_document(upload, beam_width=o.beam_width,
-                                            include_headers_footers=o.include_headers_footers,
+            doc = pipeline.process_document(upload, include_headers_footers=o.include_headers_footers,
                                             max_pages=self.settings.max_pdf_pages, progress=progress)
             doc.save(d, "document.ocr.json")
             # The editable copy shares the same assets directory.
