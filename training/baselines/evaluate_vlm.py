@@ -1,15 +1,15 @@
 """Evaluate a third-party OCR engine (Surya OCR, Qwen2.5-VL, or Tesseract)
 against a local {images/, labels/} benchmark directory (e.g.
 test_set/khob_eval), using the same normalization/CER/WER/exact-match scoring
-as evaluate_benchmark.py (see ocr_eval_common.py), so results are directly
+as training/evaluate.sh (see netra_ocr_train/metrics.py), so results are directly
 comparable across engines.
 
 Usage:
-    python -m netra_ocr_train.scripts.evaluate_vlm --engine surya \\
+    python training/baselines/evaluate_vlm.py --engine surya \\
         --local-dir training/test_set/khob_eval --out-dir eval_out_khob_surya
-    python -m netra_ocr_train.scripts.evaluate_vlm --engine qwen \\
+    python training/baselines/evaluate_vlm.py --engine qwen \\
         --local-dir training/test_set/khob_eval --out-dir eval_out_khob_qwen
-    python -m netra_ocr_train.scripts.evaluate_vlm --engine tesseract \\
+    python training/baselines/evaluate_vlm.py --engine tesseract \\
         --local-dir training/test_set/khob_eval --out-dir eval_out_khob_tess
 
 The tesseract engine needs a tesseract binary (set TESSERACT_CMD if it isn't
@@ -30,7 +30,7 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-from .ocr_eval_common import load_local_dataset, load_images, score, write_records, print_summary
+from netra_ocr_train.metrics import load_local_dataset, load_images, score, write_records, print_summary
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 

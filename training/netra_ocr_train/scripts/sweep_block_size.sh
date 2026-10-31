@@ -6,21 +6,20 @@
 #
 # Each block size needs its own init + trained head -- the proposal FFN has
 # `block_size - 1` output heads, so a head trained for one block size can't be
-# reused for another. train.py always writes khmerocr_se_blockwise_last.pth, so
-# we rename after each run to keep them side by side.
+# reused for another. Each one gets its own run folder,
+# training/runs/blockwise-bs<N>/.
 #
-# Usage:
-#   cd /run/media/pc/disk1/Netra-OCR && source .venv/bin/activate
+# Usage (from the repository root, after training/setup.sh):
+#   source .venv/bin/activate
 #   bash training/netra_ocr_train/scripts/sweep_block_size.sh
 #
 # Override defaults via env vars, e.g.:
 #   BLOCK_SIZES="6 8" EPOCHS=15 bash .../sweep_block_size.sh
 set -euo pipefail
 
-WEIGHT_DIR="training/netra_ocr_train/weight"
 VOCAB="training/netra_ocr_train/char2idx_cluster.json"
-AR_BASE="${AR_BASE:-$WEIGHT_DIR/khmerocr_se_ar_last.pth}"   # converged, frozen cluster-AR base
-BLOCK_SIZES="${BLOCK_SIZES:-6 8 10}"                        # bs=4 already trained
+AR_BASE="${AR_BASE:-training/weights/khmerocr_cluster_ar.pth}"   # converged, frozen cluster-AR base
+BLOCK_SIZES="${BLOCK_SIZES:-6 8 10}"                              # bs=4 is the published one
 EPOCHS="${EPOCHS:-20}"
 BATCH_SIZE="${BATCH_SIZE:-32}"
 EPOCH_SAMPLE_SIZE="${EPOCH_SAMPLE_SIZE:-50000}"
@@ -32,37 +31,25 @@ fi
 
 echo "=== Block-size sweep: [$BLOCK_SIZES] on base $AR_BASE ==="
 
+BW_MODELS=(published-blockwise)
 for BS in $BLOCK_SIZES; do
-  INIT="$WEIGHT_DIR/khmerocr_cluster_blockwise_bs${BS}_init.pth"
-  FINAL="$WEIGHT_DIR/khmerocr_blockwise_bs${BS}_last.pth"
+  RUN="training/runs/blockwise-bs${BS}"
+  mkdir -p "$RUN"
 
   echo "--- [bs=$BS] init proposal head ---"
   python -m netra_ocr_train.scripts.init_blockwise_decoder \
-    --src "$AR_BASE" --dst "$INIT" --vocab "$VOCAB" --block-size "$BS"
+    --src "$AR_BASE" --dst "$RUN/init.pth" --vocab "$VOCAB" --block-size "$BS"
 
   echo "--- [bs=$BS] train proposal head ($EPOCHS epochs) ---"
   python -m netra_ocr_train.scripts.train \
-    --vocab "$VOCAB" --resume "$INIT" \
-    --decoder-type blockwise --block-size "$BS" \
+    --vocab "$VOCAB" --init "$RUN/init.pth" \
     --epochs "$EPOCHS" --batch-size "$BATCH_SIZE" --epoch-sample-size "$EPOCH_SAMPLE_SIZE" \
-    --log-file "$WEIGHT_DIR/train_blockwise_bs${BS}.log" \
-    --out-dir "$WEIGHT_DIR"
+    --out-dir "$RUN"
 
-  # train.py writes a fixed filename; rename so the next block size doesn't clobber it.
-  mv "$WEIGHT_DIR/khmerocr_se_blockwise_last.pth" "$FINAL"
-  echo "--- [bs=$BS] done -> $FINAL ---"
+  BW_MODELS+=("$RUN/best.pth")
+  echo "--- [bs=$BS] done -> $RUN/best.pth ---"
 done
 
-# Build the list of all trained blockwise checkpoints (include bs=4 if present).
-BW_MODELS=()
-[[ -f "$WEIGHT_DIR/khmerocr_se_blockwise_last.pth" ]] && BW_MODELS+=("$WEIGHT_DIR/khmerocr_se_blockwise_last.pth")
-for BS in $BLOCK_SIZES; do
-  BW_MODELS+=("$WEIGHT_DIR/khmerocr_blockwise_bs${BS}_last.pth")
-done
-
+# The text is identical to AR by construction; compare ms/line.
 echo "=== Benchmarking AR + all block sizes ==="
-python -m netra_ocr_train.scripts.evaluate_benchmark \
-  --local-dir training/test_set/khob_eval \
-  --ar-beam-width 1 \
-  --blockwise-model "${BW_MODELS[@]}" \
-  --out-dir eval_out_sweep
+python -m netra_ocr_train.scripts.evaluate "$AR_BASE" "${BW_MODELS[@]}" --out training/runs/eval-sweep

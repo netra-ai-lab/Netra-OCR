@@ -40,7 +40,7 @@ from ..config import OCRConfig
 from ..model.blockwise_decoder import BlockwiseParallelWrapper
 from ..model.model import KhmerOCR
 from ..predictor import OCRPredictor
-from ..utils import autodetect_config
+from ..utils import autodetect_config, resolve_checkpoint
 
 OPSET = 18
 DEFAULT_VOCAB_PATH = Path(__file__).resolve().parents[1] / "char2idx_cluster.json"
@@ -244,7 +244,9 @@ def check(model_path: str, vocab_path: str, bundle_dir: Path, test_dir: Path, de
     from netra_ocr.inference import Recognizer
     from PIL import Image
 
-    images = [Image.open(p) for p in sorted((test_dir / "images").iterdir())]
+    from ..metrics import IMAGE_SUFFIXES
+    images = [Image.open(p) for p in sorted((test_dir / "images").iterdir()) if p.suffix.lower() in IMAGE_SUFFIXES]
+    worst = 1.0
     for device in devices:
         recognizer = Recognizer(bundle_dir, device=device)
         torch_predictor = load_predictor(model_path, vocab_path, "cpu" if device == "cpu" else "cuda")
@@ -268,11 +270,13 @@ def check(model_path: str, vocab_path: str, bundle_dir: Path, test_dir: Path, de
               f"torch {1000 * t_torch / n:.1f}, single {1000 * t_single / n:.1f}, batch {1000 * t_batch / n:.1f}")
         for name, want, got in [(i, e, b) for i, (e, b) in enumerate(zip(expected, batched)) if e != b][:5]:
             print(f"   line {name}\n     torch: {want}\n     batch: {got}")
+        worst = min(worst, sum(a == b for a, b in zip(batched, expected)) / max(1, n))
+    return worst
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", required=True, help="Recognition checkpoint (.pth)")
+    parser.add_argument("--model", required=True, help='Recognition checkpoint (.pth, or "published")')
     parser.add_argument("--vocab", default=DEFAULT_VOCAB_PATH)
     parser.add_argument("--out", required=True, type=Path, help="Model folder to write")
     parser.add_argument("--name", default="netra-ocr-recognition")
@@ -280,13 +284,17 @@ def main():
     parser.add_argument("--check", type=Path, help="Test set ({images/,labels/}) for a parity check")
     parser.add_argument("--devices", nargs="+", default=["cpu"], help="Devices for --check")
     parser.add_argument("--batch-size", type=int, default=16, help="Batch size for --check")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
+    args.model = str(resolve_checkpoint(args.model))
     export(args.model, args.vocab, args.out, args.name, args.version)
     print(f"Model folder written to {args.out}: " + json.dumps(
         {p.name: f"{p.stat().st_size / 1e6:.1f} MB" for p in sorted(args.out.iterdir())}))
     if args.check:
-        check(args.model, args.vocab, args.out, args.check, args.devices, args.batch_size)
+        # GPU arithmetic may flip a rare near-tie; on the CPU the folder must match torch.
+        identical = check(args.model, args.vocab, args.out, args.check, args.devices, args.batch_size)
+        if identical < 0.99:
+            raise SystemExit(f"Only {100 * identical:.1f}% of the lines match PyTorch: the export is wrong")
 
 
 if __name__ == "__main__":

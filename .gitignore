@@ -94,6 +94,8 @@ training/netra_ocr_train/TEST_SET_EVAL_RESULTS.md
 eval_out*/
 test_set/
 bundles/
+# Training and evaluation runs (training/*.sh): checkpoints, logs, exported folders.
+training/runs/
 research/
 unsloth_compiled_cache/
 

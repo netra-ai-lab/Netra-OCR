@@ -257,9 +257,25 @@ curl -F file=@scan.jpg http://localhost:8000/v1/ocr               # returns the 
 | [Architecture](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/ARCHITECTURE.md) | Each module in detail: chunking, the SE network, merging, the BiLSTM, decoding, tokenisation |
 | [Results](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RESULTS.md) | The full benchmark against Tesseract, Surya and the vision-language models; greedy against blockwise decoding |
 | [Releasing](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RELEASING.md) | Publishing to PyPI and the Docker registry |
-| [Training](https://github.com/netra-ai-lab/Netra-OCR/blob/master/training/README.md) | The research code, kept apart from the app: training, evaluation, and exporting a checkpoint to the model files the app runs |
+| [Training](https://github.com/netra-ai-lab/Netra-OCR/blob/master/training/README.md) | Fine-tuning, training and evaluating the recognizer, and exporting it for the app |
 
-## 8. Limitations
+## 8. Train, fine-tune and evaluate
+
+The repository also trains the recognizer. Each step is one script, run from a checkout. These need PyTorch and are not part of `pip install netra-ocr`.
+
+```bash
+git clone https://github.com/netra-ai-lab/Netra-OCR && cd Netra-OCR
+bash training/setup.sh                                   # .venv with the app + PyTorch training code
+bash training/evaluate.sh published                      # score the model the app ships
+bash training/finetune.sh my_lines/ --name my-model      # fine-tune it on your own text lines
+bash training/evaluate.sh published training/runs/my-model/best.pth --test my_test_lines/
+bash training/export.sh training/runs/my-model/best.pth  # ONNX model folder for the app
+NETRA_BUNDLES=training/runs/my-model/bundles netra_ocr serve   # the app, with your model
+```
+
+Your data is a folder of line images and their text, `my_lines/images/0001.png` with `my_lines/labels/0001.txt`, or a Hugging Face dataset id. `bash training/train.sh` trains from scratch on the public datasets. A GPU is strongly recommended. [training/README.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/training/README.md) covers the data format, the options, reading the results and the advanced tools.
+
+## 9. Limitations
 
 - **Khmer first.** Netra-OCR is trained mostly on Khmer, so English text can come back with small errors.
 - **Hard photos cost accuracy.** On phone photos of legal documents the error is 5.31%, against 0.96% on KHOB. Flat, well-lit scans read best.
@@ -268,7 +284,7 @@ curl -F file=@scan.jpg http://localhost:8000/v1/ocr               # returns the 
 - **Synthetic training data.** No real scans were used in training, so unusual fonts or layouts can fall outside what the model has seen.
 - **The baselines are short fine-tunes.** The two vision-language models had a 300-step LoRA on 6,000 lines, not a full training run, so they show what a quick adaptation gives, not their ceiling.
 
-## 9. Licensing
+## 10. Licensing
 
 Netra-OCR's code is released under the MIT License (see [LICENSE](https://github.com/netra-ai-lab/Netra-OCR/blob/master/LICENSE)).
 - **AGPL-3.0 model:** the YOLO text-line detector's weights (`lines/`) were trained with Ultralytics YOLO and are AGPL-3.0. They're used by the default `yolo` detector and are part of the Docker image. Read [THIRD_PARTY_LICENSES.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/THIRD_PARTY_LICENSES.md) before redistributing the image or running a modified version as a public service. The app runs no AGPL code; `ultralytics` and `doclayout-yolo` are used only by the training code in `training/`. The recognizer, the layout model (Apache-2.0) and the `legacy` and `tesseract` detectors carry no AGPL terms.

@@ -1,40 +1,40 @@
-"""Training entrypoint for the recognition model.
+"""Train or fine-tune the recognition model.
 
-Supports both decoder architectures:
+Usually run through the bash wrappers (from the repository root):
+
+    bash training/finetune.sh my_lines/            # start from the published model
+    bash training/train.sh                         # from scratch, public datasets
+
+Data (``--data``, ``--val-data``) is one or more specs: a folder with
+``images/`` + ``labels/`` (one .txt per image), or a Hugging Face dataset id
+``user/name[:split[:text_column]]`` -- see ``netra_ocr_train/data.py``. Without
+``--val-data``, 5% of ``--data`` (50-500 lines) is held out.
+
+Starting points:
+  --init CKPT|published   weights only: a fresh optimizer from epoch 0 (fine-tuning)
+  --resume CKPT           continue an interrupted run (weights, optimizer, epoch)
+
+Every epoch decodes the validation lines greedily (as the app does) and
+writes, in --out-dir: last.pth, best.pth (lowest validation CER), metrics.csv
+and train.log.
+
+Decoder types:
   - "ar": standard shift-by-1 teacher forcing, single CrossEntropyLoss.
-    Trains the whole model from scratch/resume.
+    Trains the whole model.
   - "blockwise": Stern et al. 2018's frozen-base blockwise parallel decoding
-    (see research/Blockwise Parallel Decoding for Deep Autoregressive
-    Models.pdf and model/blockwise_decoder.py). The *entire* model --
-    CNN/encoder/BiLSTM/decoder attention stack/tok_emb/out_proj -- is frozen
-    exactly as it was in the source AR checkpoint; only a small new
-    feedforward head (added by `init_blockwise_decoder.py`) that guesses
-    `block_size - 1` further tokens ahead is trained. Requires `--resume`
-    pointing at a checkpoint produced by
-    `scripts/init_blockwise_decoder.py` (not a raw AR checkpoint -- that
-    script adds the trainable head first). Because almost the whole network
-    is frozen, this needs far less training time/data than "ar" from
-    scratch or the old semi-AR schemes this replaced.
-
-Usage:
-    python -m netra_ocr_train.scripts.init_blockwise_decoder \\
-        --src training/weights/khmerocr_epoch570.pth \\
-        --dst training/weights/khmerocr_blockwise_init.pth \\
-        --vocab training/netra_ocr_train/char2idx_new.json --block-size 4
-
-    python -m netra_ocr_train.scripts.train \\
-        --vocab training/netra_ocr_train/char2idx_new.json \\
-        --resume training/weights/khmerocr_blockwise_init.pth \\
-        --decoder-type blockwise --block-size 4 \\
-        --epochs 20 --batch-size 32 --epoch-sample-size 50000 \\
-        --out-dir training/netra_ocr_train/weight
+    (model/blockwise_decoder.py). The whole AR model is frozen; only a small
+    proposal head that guesses ``block_size - 1`` further tokens is trained.
+    Needs ``--init``/``--resume`` pointing at a checkpoint produced by
+    ``scripts/init_blockwise_decoder.py`` (which adds the head).
 """
 
 import argparse
+import csv
 import logging
 import math
 import os
 import random
+import time
 from pathlib import Path
 
 import torch
@@ -51,9 +51,13 @@ torch.multiprocessing.set_sharing_strategy("file_system")
 
 from ..cluster_tokenizer import ClusterTokenizer
 from ..config import OCRConfig
-from .dataset import DATASET_SOURCES, OCRLineDataset, load_training_datasets, ocr_collate_fn
+from ..data import DEFAULT_TRAIN_DATA, OCRLineDataset, load_lines, ocr_collate_fn, split_off, unknown_characters
+from ..metrics import score
 from ..predictor import OCRPredictor
-from ..utils import setup_logging
+from ..utils import HF_CACHE_DIR, RUNS_DIR, autodetect_config, resolve_checkpoint, setup_logging
+
+DEFAULT_VOCAB = Path(__file__).resolve().parents[1] / "char2idx_cluster.json"
+VAL_LIMIT = 1000   # validation lines decoded per epoch, at most
 
 logger = logging.getLogger(__name__)
 
@@ -155,48 +159,70 @@ def lr_at(global_step, total_steps, warmup_steps, base_lr, min_lr):
     return min_lr + 0.5 * (base_lr - min_lr) * (1 + math.cos(math.pi * progress))
 
 
-def train(args):
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    log_file = args.log_file or (out_dir / "train.log")
-    setup_logging(log_file=log_file)
+def validate(predictor: OCRPredictor, images, labels) -> dict:
+    """Greedy-decode the validation lines with the live model and score them."""
+    predictor.model.eval()
+    with torch.no_grad():
+        predictions = predictor.predict_batch(images, beam_width=1, batch_size=16, progress=False)
+    metrics, _ = score(labels, predictions)
+    return metrics
 
-    # Must be set before any `import datasets`/`huggingface_hub` (done lazily
-    # inside dataset.py) so the Hub's download + processed-dataset caches land
-    # under the project instead of the default ~/.cache/huggingface/.
+
+def _load_state(model, path: Path, device):
+    checkpoint = torch.load(path, map_location=device)
+    state_dict = checkpoint.get("model_state_dict", checkpoint)
+    try:
+        model.load_state_dict(state_dict, strict=True)
+    except RuntimeError as e:
+        raise SystemExit(f"{path} doesn't match this model (wrong --vocab?):\n{e}") from None
+    return checkpoint
+
+
+def train(args):
+    out_dir = Path(args.out_dir or RUNS_DIR / time.strftime("%Y%m%d-%H%M%S"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    setup_logging(log_file=out_dir / "train.log")
+    logger.info(f"Run folder: {out_dir}")
+
+    # Must be set before any `import datasets`/`huggingface_hub` so the Hub's
+    # download + processed-dataset caches land under the project instead of
+    # the default ~/.cache/huggingface/.
     os.environ.setdefault("HF_HOME", str(Path(args.data_dir).resolve()))
 
+    start_from = resolve_checkpoint(args.resume or args.init) if (args.resume or args.init) else None
     cfg = OCRConfig(
         emb_dim=args.emb_dim,
         max_seq_len=args.max_seq_len,
         decode_max_len=args.decode_max_len,
         decoder_type=args.decoder_type,
         block_size=args.block_size,
-        device="cuda" if torch.cuda.is_available() else "cpu",
+        device=args.device or ("cuda" if torch.cuda.is_available() else "cpu"),
     )
+    if start_from:
+        # The checkpoint's own shape (dims, decoder type, block size) wins over the flags.
+        for key, value in autodetect_config(start_from).items():
+            setattr(cfg, key, value)
     device = torch.device(cfg.device)
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True
+    else:
+        logger.warning("No GPU: training on the CPU is very slow (fine for a smoke test only).")
 
     # Fresh high-entropy seed every run (not derived from a fixed constant),
     # so RandomSampler's epoch subsampling and each worker's augmentation
-    # (see `_worker_init_fn`) are genuinely different run-to-run rather than
-    # riding on whatever the global RNG happened to inherit. Logged so a run
-    # can be told apart from a previous one after the fact.
+    # (see `_worker_init_fn`) are genuinely different run-to-run. Logged so a
+    # run can be told apart from a previous one after the fact.
     run_seed = int.from_bytes(os.urandom(4), "little")
     random.seed(run_seed)
     sampler_generator = torch.Generator().manual_seed(run_seed)
     logger.info(f"Run RNG seed: {run_seed}")
 
-    if cfg.decoder_type == "blockwise" and not args.resume:
-        raise ValueError(
-            "--decoder-type blockwise requires --resume pointing at a checkpoint produced by "
-            "scripts/init_blockwise_decoder.py -- the base decoder is frozen and randomly "
-            "initialized otherwise, which is not trainable from scratch."
-        )
+    if cfg.decoder_type == "blockwise" and not start_from:
+        raise SystemExit(
+            "--decoder-type blockwise needs --init or --resume pointing at a checkpoint produced by "
+            "scripts/init_blockwise_decoder.py -- the base decoder is frozen and would stay random otherwise.")
 
     tokenizer = ClusterTokenizer(args.vocab)
-
     model = build_model(args.model, tokenizer, cfg).to(device)
 
     trainable_params = [p for p in model.parameters() if p.requires_grad]
@@ -207,53 +233,55 @@ def train(args):
 
     optimizer = torch.optim.Adam(trainable_params, lr=args.lr, betas=(0.9, 0.999))
     start_epoch = 0
+    best_cer = float("inf")
 
     if args.resume:
-        checkpoint = torch.load(args.resume, map_location=device)
-        state_dict = checkpoint.get("model_state_dict", checkpoint)
-        model.load_state_dict(state_dict, strict=True)
+        checkpoint = _load_state(model, start_from, device)
         if "optimizer_state_dict" in checkpoint:
-            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             # LR is recomputed from (epoch, step) every training step below
-            # (see `lr_at`), so whatever LR this restores is irrelevant and
-            # gets overwritten before the first optimizer.step() -- resuming
-            # can never silently inherit a stale/collapsed LR.
-            start_epoch = checkpoint.get("epoch", 0)
-            logger.info(f"Resumed training from epoch {start_epoch}")
-        else:
-            logger.info(f"Loaded weights from {args.resume} (fresh optimizer/epoch=0)")
+            # (see `lr_at`), so whatever LR this restores is overwritten
+            # before the first optimizer.step().
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        start_epoch = checkpoint.get("epoch", 0)
+        best_cer = checkpoint.get("meta", {}).get("best_val_cer", best_cer)
+        logger.info(f"Resumed {args.resume} at epoch {start_epoch}")
+    elif args.init:
+        _load_state(model, start_from, device)
+        logger.info(f"Starting from the weights of {args.init} (fresh optimizer, epoch 0)")
 
     if args.epochs <= start_epoch:
-        raise ValueError(
-            f"--epochs {args.epochs} is <= the resumed checkpoint's epoch ({start_epoch}); "
-            f"--epochs is the absolute target epoch to train up to, not a number of additional "
-            f"epochs, so range(start_epoch, args.epochs) would be empty and train() would "
-            f"silently do nothing. Pass --epochs {start_epoch + args.epochs} to run "
-            f"{args.epochs} more epochs from here."
-        )
+        raise SystemExit(
+            f"--epochs {args.epochs} is <= the resumed checkpoint's epoch ({start_epoch}); --epochs is the "
+            f"epoch to train up to, so pass --epochs {start_epoch + args.epochs} to run {args.epochs} more.")
 
     criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_idx)
 
-    logger.info("Loading training datasets (this downloads/caches them on first run)...")
-    hf_dataset = load_training_datasets(DATASET_SOURCES)
-    logger.info(f"Loaded {len(hf_dataset)} total rows")
-    full_dataset = OCRLineDataset(hf_dataset, tokenizer, cfg, augment=True)
+    logger.info("Loading data (Hugging Face datasets download on the first run)...")
+    rows = load_lines(args.data)
+    unknown = unknown_characters(rows, tokenizer)
+    if unknown:
+        top = ", ".join(f"{ch!r}×{n}" for ch, n in sorted(unknown.items(), key=lambda kv: -kv[1])[:15])
+        logger.warning(f"Characters the vocabulary can't encode (learned as <unk>, read back as a space): {top}")
+    if args.val_data:
+        train_rows, val_rows = rows, load_lines(args.val_data)
+    else:
+        train_rows, val_rows = split_off(rows)
+        logger.info(f"Held out {len(val_rows)} of the {len(rows):,} lines for validation")
+    val_idx = list(range(len(val_rows)))
+    if len(val_idx) > VAL_LIMIT:
+        val_idx = sorted(random.Random(0).sample(val_idx, VAL_LIMIT))
+    val_images = [val_rows[i]["image"] for i in val_idx]
+    val_labels = [val_rows[i]["label"] for i in val_idx]
+    logger.info(f"Training on {len(train_rows):,} lines, validating on {len(val_images)}")
 
-    # Fixed reference sample held out for a qualitative per-epoch check --
-    # does the model still transcribe correctly, in plain text, alongside the loss?
-    reference_row = hf_dataset[0]
-    reference_image, reference_label = reference_row["image"], reference_row["label"]
+    full_dataset = OCRLineDataset(train_rows, tokenizer, cfg, augment=not args.no_augment)
     predictor = OCRPredictor(model=model, tokenizer=tokenizer, config=cfg)
 
-    ckpt_path = out_dir / f"khmerocr_{args.model}_{cfg.decoder_type}_last.pth"
-
     # Built once and reused across epochs -- RandomSampler draws a fresh
-    # random sample_size subset every time the loader is iterated, so there's
-    # no need to rebuild the Dataset/DataLoader (and respawn the worker pool)
-    # each epoch like the old Subset(randperm(...)) approach did.
-    sample_size = min(args.epoch_sample_size, len(full_dataset))
+    # random sample_size subset every time the loader is iterated.
+    sample_size = min(args.epoch_sample_size or len(full_dataset), len(full_dataset))
     sampler = RandomSampler(full_dataset, replacement=False, num_samples=sample_size,
-                             generator=sampler_generator)
+                            generator=sampler_generator)
     loader = DataLoader(
         full_dataset, batch_size=args.batch_size, sampler=sampler,
         collate_fn=lambda b: ocr_collate_fn(b, tokenizer.pad_idx),
@@ -268,8 +296,18 @@ def train(args):
     total_steps = args.epochs * steps_per_epoch
     warmup_steps = args.warmup_epochs * steps_per_epoch
 
+    metrics_path = out_dir / "metrics.csv"
+    if not metrics_path.exists():
+        metrics_path.write_text("epoch,train_loss,val_cer,val_wer,val_exact,lr,minutes\n")
+
+    if start_epoch == 0 and not args.no_initial_eval:
+        initial = validate(predictor, val_images, val_labels)
+        logger.info(f"Before training: val CER {initial['cer']:.4f}  WER {initial['wer']:.4f}  "
+                    f"exact {initial['exact_match']:.4f}")
+
     for epoch in range(start_epoch, args.epochs):
         _set_train_mode(model, cfg.decoder_type)
+        started = time.time()
         running_loss = 0.0
         for step, (chunk_lists, label_pad, _texts) in enumerate(loader):
             chunk_lists = [[c.to(device) for c in img] for img in chunk_lists]
@@ -282,7 +320,7 @@ def train(args):
 
             optimizer.zero_grad()
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16,
-                                 enabled=(device.type == "cuda")):
+                                enabled=(device.type == "cuda")):
                 if cfg.decoder_type == "blockwise":
                     loss = blockwise_loss_step(model, chunk_lists, label_pad, criterion)
                 else:
@@ -292,34 +330,53 @@ def train(args):
 
             running_loss += loss.item()
             if step % args.log_every == 0:
-                logger.info(f"epoch {epoch} step {step}/{len(loader)} loss={loss.item():.4f} lr={lr:.2e}")
+                logger.info(f"epoch {epoch + 1}/{args.epochs} step {step}/{steps_per_epoch} "
+                            f"loss={loss.item():.4f} lr={lr:.2e}")
 
-        avg_loss = running_loss / max(1, len(loader))
-        logger.info(f"epoch {epoch} done, avg_loss={avg_loss:.4f}")
+        avg_loss = running_loss / max(1, steps_per_epoch)
+        val = validate(predictor, val_images, val_labels)
+        minutes = (time.time() - started) / 60
+        improved = val["cer"] < best_cer
+        best_cer = min(best_cer, val["cer"])
+        logger.info(f"epoch {epoch + 1}/{args.epochs}: loss {avg_loss:.4f}, val CER {val['cer']:.4f} "
+                    f"WER {val['wer']:.4f} exact {val['exact_match']:.4f} ({minutes:.1f} min)"
+                    + ("  * best so far" if improved else ""))
+        with open(metrics_path, "a", newline="") as f:
+            csv.writer(f).writerow([epoch + 1, f"{avg_loss:.5f}", f"{val['cer']:.5f}", f"{val['wer']:.5f}",
+                                    f"{val['exact_match']:.5f}", f"{lr:.3e}", f"{minutes:.2f}"])
 
-        model.eval()
-        predicted = predictor.predict(reference_image)
-        _set_train_mode(model, cfg.decoder_type)
-        logger.info(f"epoch {epoch} sample check: predicted={predicted!r} expected={reference_label!r}")
-
-        torch.save({
+        checkpoint = {
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "epoch": epoch + 1,
             "meta": {
                 "decoder_type": cfg.decoder_type,
                 "block_size": cfg.block_size,
+                "vocab": Path(args.vocab).name,
+                "val_cer": val["cer"],
+                "best_val_cer": best_cer,
             },
-        }, ckpt_path)
-        logger.info(f"Saved checkpoint to {ckpt_path}")
+        }
+        torch.save(checkpoint, out_dir / "last.pth")
+        if improved:
+            # best.pth is for evaluating/exporting: weights only, a third of the size.
+            torch.save({k: v for k, v in checkpoint.items() if k != "optimizer_state_dict"}, out_dir / "best.pth")
+
+    logger.info(f"Done. Best validation CER {best_cer:.4f}: {out_dir / 'best.pth'}")
+    return out_dir
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--vocab", default="training/netra_ocr_train/char2idx_cluster.json")
-    parser.add_argument("--data-dir", default="training/.hf_cache",
-                         help="Hugging Face cache dir (datasets + hub downloads) local to the project")
-    parser.add_argument("--resume", default=None, help="Checkpoint to warm-start/resume from")
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--data", nargs="+", default=DEFAULT_TRAIN_DATA,
+                        help="Training data: folders and/or Hugging Face dataset ids (default: the public datasets)")
+    parser.add_argument("--val-data", nargs="+", help="Validation data (default: hold out 5%% of --data)")
+    parser.add_argument("--init", help='Start from these weights: a .pth, or "published" (fine-tuning)')
+    parser.add_argument("--resume", help="Continue an interrupted run from its last.pth")
+    parser.add_argument("--out-dir", help="Run folder (default: training/runs/<date-time>)")
+    parser.add_argument("--vocab", default=str(DEFAULT_VOCAB))
+    parser.add_argument("--data-dir", default=str(HF_CACHE_DIR),
+                        help="Hugging Face cache dir (datasets + hub downloads) local to the project")
     parser.add_argument("--model", choices=["se"], default="se")
     parser.add_argument("--decoder-type", choices=["ar", "blockwise"], default="ar")
     parser.add_argument("--block-size", type=int, default=4)
@@ -328,19 +385,24 @@ def parse_args():
     parser.add_argument("--decode-max-len", type=int, default=512)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--epoch-sample-size", type=int, default=50000)
+    parser.add_argument("--epoch-sample-size", type=int, default=None,
+                        help="Lines drawn per epoch (default: all of them)")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--min-lr", type=float, default=1e-6,
-                         help="Floor LR the cosine decay approaches at the final epoch")
+                        help="Floor LR the cosine decay approaches at the final epoch")
     parser.add_argument("--warmup-epochs", type=int, default=5,
-                         help="Epochs of linear warmup from 0 to --lr before cosine decay begins")
+                        help="Epochs of linear warmup from 0 to --lr before cosine decay begins")
+    parser.add_argument("--no-augment", action="store_true", help="Train on the images as they are")
+    parser.add_argument("--no-initial-eval", action="store_true", help="Skip scoring the model before training")
+    parser.add_argument("--device", help="cuda, cuda:1 or cpu (default: cuda if available)")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--log-every", type=int, default=50)
-    parser.add_argument("--log-file", default=None,
-                         help="Path to write training logs to (default: <out-dir>/train.log)")
-    parser.add_argument("--out-dir", default="training/weights")
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    train(parse_args(argv))
 
 
 if __name__ == "__main__":
-    train(parse_args())
+    main()

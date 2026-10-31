@@ -10,10 +10,10 @@ Usage (run as a plain script, NOT `python -m ...` -- `-m` would import the
 `netra_ocr` package's __init__ first, which pulls in cv2/ultralytics that
 aren't installed in this venv):
     source .venv-deepseek/bin/activate
-    python training/netra_ocr_train/scripts/evaluate_deepseek.py \\
+    python training/baselines/evaluate_deepseek.py \\
         --local-dir training/test_set/khob_eval --out-dir eval_out_khob_deepseek
 
-Loads ocr_eval_common.py directly via importlib (bypassing the `netra_ocr`
+Loads netra_ocr_train/metrics.py directly via importlib (bypassing the `netra_ocr`
 package __init__, which pulls in cv2/ultralytics -- not installed in this
 venv) so normalization/scoring stays identical to the other engines' scripts.
 """
@@ -30,7 +30,7 @@ from transformers import AutoModel, AutoTokenizer
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-_COMMON_PATH = Path(__file__).resolve().parent / "ocr_eval_common.py"
+_COMMON_PATH = Path(__file__).resolve().parents[1] / "netra_ocr_train" / "metrics.py"
 _spec = importlib.util.spec_from_file_location("ocr_eval_common", _COMMON_PATH)
 common = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(common)

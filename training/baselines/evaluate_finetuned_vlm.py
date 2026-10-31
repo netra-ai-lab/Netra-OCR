@@ -1,11 +1,11 @@
 """Evaluate a finetune_vlm_khmer.py LoRA (Qwen2.5-VL-3B or DeepSeek-OCR)
 against a local {images/, labels/} benchmark directory, with the same
-normalization/scoring as every other engine (ocr_eval_common.py).
+normalization/scoring as every other engine (netra_ocr_train/metrics.py).
 
 Must run under `.venv-unsloth`, as a plain script (not `-m`):
 
     source .venv-unsloth/bin/activate
-    python training/netra_ocr_train/scripts/evaluate_finetuned_vlm.py \\
+    python training/baselines/evaluate_finetuned_vlm.py \\
         --model qwen --lora training/weights/lora_qwen_khmer \\
         --local-dir training/test_set/khob_eval --out-dir eval_out_khob_qwen_ft
 """
@@ -20,7 +20,7 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-_COMMON_PATH = Path(__file__).resolve().parent / "ocr_eval_common.py"
+_COMMON_PATH = Path(__file__).resolve().parents[1] / "netra_ocr_train" / "metrics.py"
 _spec = importlib.util.spec_from_file_location("ocr_eval_common", _COMMON_PATH)
 common = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(common)

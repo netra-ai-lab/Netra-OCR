@@ -2,13 +2,13 @@
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-# Not published: install it from a checkout next to the app (the export
-# parity checks run the exported models with netra_ocr.inference),
-#   pip install -e ".[cpu]" -e training
+# Not published: install it from a checkout next to the app (evaluation and
+# the export parity check run the exported models with netra_ocr.inference):
+#   bash training/setup.sh       (or: pip install -e ".[cpu]" -e training)
 [project]
 name = "netra-ocr-train"
 version = "0.0.0"
-description = "Training, evaluation and export for Netra OCR's models (research only)."
+description = "Training, fine-tuning, evaluation and export for Netra OCR's recognizer."
 requires-python = ">=3.10"
 license = {text = "MIT"}
 dependencies = [
@@ -17,12 +17,20 @@ dependencies = [
     "tqdm",
     "numpy",
     "pillow",
-    "onnx",          # exporting models for the app
+    "datasets",        # Hugging Face training / test sets
+    "huggingface_hub", # the published checkpoint
+    "khmerspell",      # Khmer normalization before scoring
+    "onnx",            # exporting models for the app
     "onnxscript",
-    # ultralytics and doclayout-yolo are AGPL-3.0 -- see THIRD_PARTY_LICENSES.md.
-    "ultralytics",
-    "doclayout-yolo",
 ]
+
+[project.optional-dependencies]
+# Only for scripts/export_yolo.py (the line detector and layout model).
+# Both are AGPL-3.0 -- see THIRD_PARTY_LICENSES.md.
+yolo = ["ultralytics", "doclayout-yolo"]
+
+[project.scripts]
+netra-train = "netra_ocr_train.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["netra_ocr_train*"]

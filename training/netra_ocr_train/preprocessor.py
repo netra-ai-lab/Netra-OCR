@@ -32,7 +32,10 @@ class ImagePreprocessor:
             
         return chunks
 
-    def process(self, image_source: str | Path | Image.Image) -> torch.Tensor:
+    def load_and_resize(self, image_source: str | Path | Image.Image) -> torch.Tensor:
+        """Grayscale + aspect-preserving resize to img_height + ToTensor.
+        Returns a [1, img_height, W] tensor in the 0-1 range (training
+        augments this before chunking)."""
         if isinstance(image_source, (str, Path)):
             if not Path(image_source).exists():
                 raise FileNotFoundError(f"Image not found: {image_source}")
@@ -45,14 +48,17 @@ class ImagePreprocessor:
         aspect_ratio = image.width / image.height
         new_width = int(self.cfg.img_height * aspect_ratio)
         new_width = max(self.cfg.chunk_width // 2, new_width)
-        
+
         image = image.resize((new_width, self.cfg.img_height), Image.Resampling.BILINEAR)
-        img_tensor = self.transform(image)
-        
-        chunks = self._chunk_tensor(img_tensor)
-        
-        # Normalization (0.5 mean/std)
-        chunks_norm = [(c - 0.5) / 0.5 for c in chunks]
-        
+        return self.transform(image)
+
+    def chunk_and_normalize(self, img_tensor: torch.Tensor) -> list[torch.Tensor]:
+        """Overlapping chunk_width windows over a [1,H,W] 0-1 tensor (the last
+        padded with white), each normalized to [-1,1] (mean/std 0.5). Returns
+        the unstacked list a training batch needs."""
+        return [(c - 0.5) / 0.5 for c in self._chunk_tensor(img_tensor)]
+
+    def process(self, image_source: str | Path | Image.Image) -> torch.Tensor:
+        chunks_norm = self.chunk_and_normalize(self.load_and_resize(image_source))
         # Return stacked tensor [Batch, Channel, H, W]
         return torch.stack(chunks_norm)

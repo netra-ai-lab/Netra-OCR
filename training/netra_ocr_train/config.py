@@ -1,21 +1,9 @@
-import os
 from dataclasses import dataclass, field
 import torch
 
 
 def _default_device() -> str:
-    # NETRA_DEVICE lets a deployment pin the device (e.g. force "cpu" inside a
-    # GPU image); otherwise use CUDA whenever it's available.
-    return os.environ.get("NETRA_DEVICE") or ("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def describe_device() -> str:
-    """Human-readable device for logs and the UI, e.g. "GPU (NVIDIA GeForce RTX 3060)"."""
-    if _default_device().startswith("cuda") and torch.cuda.is_available():
-        return f"GPU ({torch.cuda.get_device_name(0)})"
-    if torch.version.cuda and not torch.cuda.is_available():
-        return "CPU (no GPU visible)"
-    return "CPU"
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 @dataclass

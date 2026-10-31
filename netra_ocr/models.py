@@ -4,7 +4,9 @@ Each model is a folder of ONNX graphs plus its settings (``netra-model.json``).
 By default they come from the Hugging Face repo ``Netra-Lab/Netra-OCR`` at commit
 ``MODEL_REVISION`` (one folder per model, downloaded once into the Hugging Face
 cache). ``NETRA_BUNDLES`` points at a local folder
-with the same layout instead:
+with the same layout instead; a model whose subfolder it lacks still comes
+from Hugging Face (so a folder holding only a fine-tuned ``recognition/``
+works):
 
     lines/                   YOLO text-line and logo detector
     layout/                  DocLayout-YOLO page layout (layout=True)
@@ -40,7 +42,9 @@ def source(key: str) -> str:
     if key not in BUNDLES:
         raise ValueError(f"Unknown model '{key}'. Available: {list(BUNDLES)}")
     root = os.environ.get("NETRA_BUNDLES")
-    return str(Path(root) / BUNDLES[key]) if root else f"{MODEL_REPO}/{BUNDLES[key]}@{MODEL_REVISION}"
+    if root and (Path(root) / BUNDLES[key]).is_dir():
+        return str(Path(root) / BUNDLES[key])
+    return f"{MODEL_REPO}/{BUNDLES[key]}@{MODEL_REVISION}"
 
 
 def load(key: str):

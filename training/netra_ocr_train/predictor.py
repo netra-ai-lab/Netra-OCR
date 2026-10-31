@@ -12,15 +12,23 @@ logger = logging.getLogger(__name__)
 
 class OCRPredictor:
     def __init__(self,
-                 model_path: str | Path,
-                 tokenizer: ClusterTokenizer,
-                 config: OCRConfig,
-                 model_class):
-        
+                 model_path: str | Path | None = None,
+                 tokenizer: ClusterTokenizer = None,
+                 config: OCRConfig = None,
+                 model_class=None,
+                 model=None):
+
         self.cfg = config
         self.tokenizer = tokenizer
         self.device = torch.device(self.cfg.device)
         self.preprocessor = ImagePreprocessor(config)
+
+        if model is not None:
+            # Wrap a live model (training's per-epoch validation): held by
+            # reference, so it always decodes with the current weights. The
+            # caller owns its train()/eval() mode.
+            self.model = model
+            return
 
         # Initialize Architecture
         logger.info(f"Init Model: dim={self.cfg.emb_dim}, max_seq={self.cfg.max_seq_len}, decoder={self.cfg.decoder_type}")
@@ -196,7 +204,8 @@ class OCRPredictor:
         best_seq = sorted(completed, key=lambda x: x[0], reverse=True)[0][1] if completed else beams[0][1]
         return self.tokenizer.decode(best_seq)
     
-    def predict_batch(self, image_list: list, beam_width: int = 1, batch_size: int = 8) -> list:
+    def predict_batch(self, image_list: list, beam_width: int = 1, batch_size: int = 8,
+                      progress: bool = True) -> list:
         """
         Processes a list of images in mini-batches with a progress bar.
         """
@@ -206,7 +215,7 @@ class OCRPredictor:
         all_results = []
         
         # Wrap the range in tqdm for a progress bar
-        pbar = tqdm(total=len(image_list), desc="OCR Recognition", unit="line")
+        pbar = tqdm(total=len(image_list), desc="OCR Recognition", unit="line", disable=not progress)
 
         for i in range(0, len(image_list), batch_size):
             mini_batch = image_list[i : i + batch_size]

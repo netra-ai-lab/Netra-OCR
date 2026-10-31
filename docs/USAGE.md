@@ -97,7 +97,7 @@ Every model runs on [ONNX Runtime](https://onnxruntime.ai), through Netra OCR's 
 | Setting | Default | Meaning |
 | :--- | :--- | :--- |
 | `NETRA_DEVICE` | `auto` | `auto` uses an NVIDIA GPU when the `gpu` extra is installed and one is present, else the CPU. Or `cpu`, `cuda`, `cuda:1`, `tensorrt`, `openvino`. |
-| `NETRA_BUNDLES` | *(unset)* | A local folder with the same four subfolders, used instead of Hugging Face (the Docker image does this). |
+| `NETRA_BUNDLES` | *(unset)* | A local folder with the same subfolders, used instead of Hugging Face (the Docker image does this). A model whose subfolder is missing still comes from Hugging Face, so a folder holding only a fine-tuned `recognition/` ([training/README.md](../training/README.md)) works. |
 
 Install exactly one ONNX Runtime build: `pip install "netra-ocr[cpu]"` or `pip install "netra-ocr[gpu]"`. Their packages conflict, so don't install both.
 

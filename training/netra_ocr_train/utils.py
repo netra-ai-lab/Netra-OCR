@@ -4,11 +4,21 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-def setup_logging():
+# training/, so the default paths work from any working directory.
+TRAINING_DIR = Path(__file__).resolve().parents[1]
+RUNS_DIR = TRAINING_DIR / "runs"
+HF_CACHE_DIR = TRAINING_DIR / ".hf_cache"
+
+def setup_logging(log_file: str | Path | None = None):
+    handlers = [logging.StreamHandler()]
+    if log_file is not None:
+        handlers.append(logging.FileHandler(log_file))
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
         datefmt="%H:%M:%S",
+        handlers=handlers,
+        force=True,
     )
 
 def autodetect_config(model_path: str | Path) -> dict:
@@ -60,3 +70,21 @@ def autodetect_config(model_path: str | Path) -> dict:
         logger.info(f"   ↳ Auto-detected: decode_max_len={shape[0]}")
 
     return detected
+
+# The published PyTorch checkpoint (the model the app's ONNX recognizer was
+# exported from), pinned so fine-tuning always starts from the same weights.
+PUBLISHED_REPO = "Darayut/khmer-text-recognition"
+PUBLISHED_REVISION = "3c29a40302ee5d6baaf97b50c75ca0421683cd8b"
+PUBLISHED_CHECKPOINTS = {"published": "khmerocr_cluster_ar.pth",
+                         "published-blockwise": "khmerocr_cluster_blockwise.pth"}
+
+
+def resolve_checkpoint(spec: str | Path) -> Path:
+    """A checkpoint path, or "published" / "published-blockwise" (downloaded once into the HF cache)."""
+    if str(spec) in PUBLISHED_CHECKPOINTS:
+        from huggingface_hub import hf_hub_download
+        return Path(hf_hub_download(PUBLISHED_REPO, PUBLISHED_CHECKPOINTS[str(spec)], revision=PUBLISHED_REVISION))
+    path = Path(spec)
+    if not path.is_file():
+        raise FileNotFoundError(f"Checkpoint not found: {path}")
+    return path

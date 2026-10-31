@@ -10,8 +10,8 @@ plain script, not `-m` (the netra_ocr package __init__ imports cv2 etc.,
 which aren't installed there):
 
     source .venv-unsloth/bin/activate
-    python training/netra_ocr_train/scripts/finetune_vlm_khmer.py --model qwen
-    python training/netra_ocr_train/scripts/finetune_vlm_khmer.py --model deepseek \\
+    python training/baselines/finetune_vlm_khmer.py --model qwen
+    python training/baselines/finetune_vlm_khmer.py --model deepseek \\
         --deepseek-dir training/weights/deepseek_ocr_base
 
 Training data: an even sample from seanghay/khmer-hanuman-100k plus the two

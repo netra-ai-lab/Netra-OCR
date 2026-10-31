@@ -1,9 +1,9 @@
-"""Shared, dependency-light helpers for OCR benchmark scripts.
+"""Scoring OCR output: CER, WER and exact match after the same normalization,
+plus reading and writing the {images/, labels/} test-set folders.
 
-Deliberately has no torch/cv2/ultralytics imports so it can be imported from
-environments that don't have this project's full stack installed (e.g. the
-separate venv used for DeepSeek-OCR, which pins an old transformers that
-conflicts with this project's own dependencies).
+Used by training (validation each epoch), ``scripts/evaluate.py`` and the
+third-party baselines in ``training/baselines/``. Deliberately has no torch
+import so those baselines can load it from their own environments.
 """
 
 import csv
@@ -14,6 +14,8 @@ from khmerspell import khnormal
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp")
 
 
 def clean_text(text: str) -> str:
@@ -28,11 +30,12 @@ def clean_text(text: str) -> str:
 
 def normalize(text: str) -> str:
     """Normalize a transcription for fair comparison across OCR engines:
-    the `\\t`-escape fix, whitespace collapse, then Khmer-specific canonical
-    reordering (`khmerspell.khnormal`) so two visually-identical renderings
-    of the same word can't count as a mismatch.
+    the `\\t`-escape fix, invisible zero-width characters dropped,
+    whitespace collapse, then Khmer-specific canonical reordering
+    (`khmerspell.khnormal`) so two visually-identical renderings of the same
+    word can't count as a mismatch.
     """
-    text = text.replace("\\t", " ").replace("\t", " ")
+    text = text.replace("\\t", " ").replace("\t", " ").replace("\u200b", "").replace("\ufeff", "")
     text = clean_text(text)
     text = khnormal(text)
     return text.strip()
@@ -96,7 +99,7 @@ def load_local_dataset(local_dir: Path):
     labels_dir = Path(local_dir) / "labels"
     image_paths, targets = [], []
     for img_path in sorted(images_dir.iterdir()):
-        if img_path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".bmp"):
+        if img_path.suffix.lower() not in IMAGE_SUFFIXES:
             continue
         label_path = labels_dir / (img_path.stem + ".txt")
         if not label_path.exists():
