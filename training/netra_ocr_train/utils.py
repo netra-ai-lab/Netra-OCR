@@ -23,6 +23,16 @@ def use_hf_cache(cache_dir: str | Path):
     os.environ.setdefault("HF_HUB_CACHE", str(cache_dir / "hub"))
     os.environ.setdefault("HF_DATASETS_CACHE", str(cache_dir / "datasets"))
 
+def file_only_logger(name: str = "netra_ocr_train.progress") -> logging.Logger:
+    """A logger that writes only to the log file (setup_logging's), for the
+    per-step lines a progress bar already shows on the screen."""
+    log = logging.getLogger(name)
+    log.propagate = False
+    log.setLevel(logging.INFO)
+    log.handlers = [h for h in logging.getLogger().handlers if isinstance(h, logging.FileHandler)]
+    return log
+
+
 def setup_logging(log_file: str | Path | None = None):
     handlers = [logging.StreamHandler()]
     if log_file is not None:

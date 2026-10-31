@@ -22,14 +22,13 @@ supports.
 Usage:
     python -m netra_ocr_train.scripts.export_recognizer \
         --model training/weights/khmerocr_cluster_ar.pth \
-        --out bundles/recognition --check training/test_set/khob_eval
+        --out bundles/recognition --check khob
 """
 
 import argparse
 import json
 import math
 import shutil
-import time
 from pathlib import Path
 
 import torch
@@ -40,7 +39,7 @@ from ..config import OCRConfig
 from ..model.blockwise_decoder import BlockwiseParallelWrapper
 from ..model.model import KhmerOCR
 from ..predictor import OCRPredictor
-from ..utils import autodetect_config, resolve_checkpoint
+from ..utils import HF_CACHE_DIR, autodetect_config, resolve_checkpoint, use_hf_cache
 
 OPSET = 18
 DEFAULT_VOCAB_PATH = Path(__file__).resolve().parents[1] / "char2idx_cluster.json"
@@ -238,39 +237,30 @@ def export(model_path: str, vocab_path: str, out_dir: Path, name: str, version: 
     })
 
 
-def check(model_path: str, vocab_path: str, bundle_dir: Path, test_dir: Path, devices: list[str],
-          batch_size: int = 16):
-    """App output (one line at a time, and batched) vs. the PyTorch greedy decoder."""
+def check(model_path: str, vocab_path: str, bundle_dir: Path, test_spec: str, devices: list[str],
+          batch_size: int = 16) -> float:
+    """App output (batched) vs. the PyTorch greedy decoder on a test set; the share of identical lines."""
     from netra_ocr.inference import Recognizer
-    from PIL import Image
+    from tqdm import tqdm
 
-    from ..metrics import IMAGE_SUFFIXES
-    images = [Image.open(p) for p in sorted((test_dir / "images").iterdir()) if p.suffix.lower() in IMAGE_SUFFIXES]
+    from ..data import load_lines
+    rows = load_lines(test_spec)
+    images = [rows[i]["image"] for i in range(len(rows))]
     worst = 1.0
     for device in devices:
         recognizer = Recognizer(bundle_dir, device=device)
         torch_predictor = load_predictor(model_path, vocab_path, "cpu" if device == "cpu" else "cuda")
-        for warm in images[:3]:
-            torch_predictor.predict(warm, beam_width=1)
-            recognizer(warm)
-
-        start = time.perf_counter()
-        expected = [torch_predictor.predict(image, beam_width=1) for image in images]
-        t_torch = time.perf_counter() - start
-        start = time.perf_counter()
-        single = [recognizer(image).text for image in images]
-        t_single = time.perf_counter() - start
-        start = time.perf_counter()
-        batched = [r.text for r in recognizer.batch(images, batch_size=batch_size)]
-        t_batch = time.perf_counter() - start
-
-        n = len(images)
-        print(f"[{recognizer}] identical to torch greedy: single {sum(a == b for a, b in zip(single, expected))}/{n}, "
-              f"batch={batch_size} {sum(a == b for a, b in zip(batched, expected))}/{n} | ms/line: "
-              f"torch {1000 * t_torch / n:.1f}, single {1000 * t_single / n:.1f}, batch {1000 * t_batch / n:.1f}")
-        for name, want, got in [(i, e, b) for i, (e, b) in enumerate(zip(expected, batched)) if e != b][:5]:
-            print(f"   line {name}\n     torch: {want}\n     batch: {got}")
-        worst = min(worst, sum(a == b for a, b in zip(batched, expected)) / max(1, n))
+        expected, got = [], []
+        for i in tqdm(range(0, len(images), batch_size), desc=f"checking on {device}", unit="batch",
+                      dynamic_ncols=True, leave=False, disable=None):
+            batch = images[i:i + batch_size]
+            expected += torch_predictor.predict_batch(batch, beam_width=1, batch_size=batch_size, progress=False)
+            got += [r.text for r in recognizer.batch(batch, batch_size=batch_size)]
+        same = sum(a == b for a, b in zip(got, expected))
+        print(f"[{recognizer}] identical to PyTorch on {same}/{len(images)} lines of {test_spec}")
+        for i, (want, have) in [(i, pair) for i, pair in enumerate(zip(expected, got)) if pair[0] != pair[1]][:5]:
+            print(f"   line {i}\n     torch: {want}\n     onnx:  {have}")
+        worst = min(worst, same / max(1, len(images)))
     return worst
 
 
@@ -281,11 +271,12 @@ def main(argv=None):
     parser.add_argument("--out", required=True, type=Path, help="Model folder to write")
     parser.add_argument("--name", default="netra-ocr-recognition")
     parser.add_argument("--version", default="1.0.0")
-    parser.add_argument("--check", type=Path, help="Test set ({images/,labels/}) for a parity check")
+    parser.add_argument("--check", help="Test set for a parity check: a preset (khob), folder, manifest or HF id")
     parser.add_argument("--devices", nargs="+", default=["cpu"], help="Devices for --check")
     parser.add_argument("--batch-size", type=int, default=16, help="Batch size for --check")
     args = parser.parse_args(argv)
 
+    use_hf_cache(HF_CACHE_DIR)
     args.model = str(resolve_checkpoint(args.model))
     export(args.model, args.vocab, args.out, args.name, args.version)
     print(f"Model folder written to {args.out}: " + json.dumps(

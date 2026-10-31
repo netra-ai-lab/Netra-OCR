@@ -8,17 +8,19 @@
 #   training/runs/NAME/best.pth  a checkpoint from finetune.sh / train.sh
 #   training/runs/NAME/bundles/recognition   a folder from export.sh
 #
-# SET is a folder (images/ + labels/, like the fine-tuning data) or a Hugging
-# Face dataset id. Default: training/test_set/khob_eval if you have it, else
-# the public SoyVitou/KHOB-LEVEL-1.
+# SET is any dataset form (see training/check_data.sh): a preset (khob,
+# printed-words), a folder, a manifest or a Hugging Face id. Default: khob, the
+# 325-line KHOB benchmark (Netra-Lab/khob-eval), downloaded on first use.
 #
+# A progress bar per model and test set shows the running CER, then a table
+# compares them all.
 # Writes each model's predictions (CSV) and summary.json to
 # training/runs/eval-<date-time>/ (or --out DIR). Other options: --limit N,
 # --beam N (checkpoints only), --device cpu|cuda.
 #
 # Examples:
 #   bash training/evaluate.sh published
-#   bash training/evaluate.sh published training/runs/receipts/best.pth --test ~/data/receipts_test
+#   bash training/evaluate.sh published training/runs/receipts/best.pth --test khob printed-words ~/data/receipts_test
 
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_env.sh"

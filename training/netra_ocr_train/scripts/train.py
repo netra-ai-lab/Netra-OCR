@@ -5,18 +5,23 @@ Usually run through the bash wrappers (from the repository root):
     bash training/finetune.sh my_lines/            # start from the published model
     bash training/train.sh                         # from scratch, public datasets
 
-Data (``--data``, ``--val-data``) is one or more specs: a folder with
-``images/`` + ``labels/`` (one .txt per image), or a Hugging Face dataset id
-``user/name[:split[:text_column]]`` -- see ``netra_ocr_train/data.py``. Without
-``--val-data``, 5% of ``--data`` (50-500 lines) is held out.
+Data (``--data``, ``--val-data``) is one or more specs: a folder (images/ +
+labels/, or images with a .txt beside each), a manifest (.tsv/.csv/.jsonl), a
+Hugging Face dataset id ``user/name[:split[:text_column]]``, or a preset
+(``synthetic``, ``khob``, ``printed-words``) -- see ``netra_ocr_train/data.py``.
+Without ``--val-data``, 5% of ``--data`` (50-500 lines, at most a fifth) is
+held out.
 
 Starting points:
   --init CKPT|published   weights only: a fresh optimizer from epoch 0 (fine-tuning)
   --resume CKPT           continue an interrupted run (weights, optimizer, epoch)
 
-Every epoch decodes the validation lines greedily (as the app does) and
-writes, in --out-dir: last.pth, best.pth (lowest validation CER), metrics.csv
-and train.log.
+A progress bar follows each epoch (lines/s, loss, time left); after each
+one the validation lines are decoded greedily (as the app does) and a summary
+line gives the scores and the time left for the run. Written to --out-dir:
+last.pth, best.pth (lowest validation CER), metrics.csv and train.log (which
+also gets a line every --log-every steps). Without a terminal (nohup, CI) the
+bars are off and those step lines go to the console instead.
 
 Decoder types:
   - "ar": standard shift-by-1 teacher forcing, single CrossEntropyLoss.
@@ -34,6 +39,7 @@ import logging
 import math
 import os
 import random
+import sys
 import time
 from pathlib import Path
 
@@ -41,6 +47,8 @@ import torch
 import torch.multiprocessing
 import torch.nn as nn
 from torch.utils.data import DataLoader, RandomSampler
+from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 # Each sample yields several small chunk tensors (not one big tensor), so the
 # default "file_descriptor" strategy for handing tensors from DataLoader
@@ -51,10 +59,11 @@ torch.multiprocessing.set_sharing_strategy("file_system")
 
 from ..cluster_tokenizer import ClusterTokenizer
 from ..config import OCRConfig
-from ..data import DEFAULT_TRAIN_DATA, OCRLineDataset, load_lines, ocr_collate_fn, split_off, unknown_characters
+from ..data import DataError, OCRLineDataset, load_lines, ocr_collate_fn, split_off, unknown_characters
 from ..metrics import score
 from ..predictor import OCRPredictor
-from ..utils import HF_CACHE_DIR, RUNS_DIR, autodetect_config, resolve_checkpoint, setup_logging, use_hf_cache
+from ..utils import (HF_CACHE_DIR, RUNS_DIR, autodetect_config, file_only_logger, resolve_checkpoint,
+                     setup_logging, use_hf_cache)
 
 DEFAULT_VOCAB = Path(__file__).resolve().parents[1] / "char2idx_cluster.json"
 VAL_LIMIT = 1000   # validation lines decoded per epoch, at most
@@ -163,9 +172,31 @@ def validate(predictor: OCRPredictor, images, labels) -> dict:
     """Greedy-decode the validation lines with the live model and score them."""
     predictor.model.eval()
     with torch.no_grad():
-        predictions = predictor.predict_batch(images, beam_width=1, batch_size=16, progress=False)
+        predictions = predictor.predict_batch(images, beam_width=1, batch_size=16, desc="validating")
     metrics, _ = score(labels, predictions)
     return metrics
+
+
+def _pct(x: float) -> str:
+    return f"{100 * x:.2f}%"
+
+
+def describe(device: torch.device) -> str:
+    return f"the GPU ({torch.cuda.get_device_name(device)})" if device.type == "cuda" else "the CPU"
+
+
+def _duration(seconds: float) -> str:
+    if seconds < 60:
+        return f"{max(1, round(seconds))} s"
+    minutes = seconds / 60
+    return f"{minutes:.1f} min" if minutes < 90 else f"{minutes / 60:.1f} h"
+
+
+def train(args):
+    try:
+        return _train(args)
+    except DataError as e:
+        raise SystemExit(f"\n{e}") from None
 
 
 def _load_state(model, path: Path, device):
@@ -178,7 +209,7 @@ def _load_state(model, path: Path, device):
     return checkpoint
 
 
-def train(args):
+def _train(args):
     out_dir = Path(args.out_dir or RUNS_DIR / time.strftime("%Y%m%d-%H%M%S"))
     out_dir.mkdir(parents=True, exist_ok=True)
     setup_logging(log_file=out_dir / "train.log")
@@ -256,7 +287,7 @@ def train(args):
 
     criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_idx)
 
-    logger.info("Loading data (Hugging Face datasets download on the first run)...")
+    logger.info("Loading data (Hugging Face datasets download on the first use)...")
     rows = load_lines(args.data)
     unknown = unknown_characters(rows, tokenizer)
     if unknown:
@@ -273,6 +304,9 @@ def train(args):
     val_images = [val_rows[i]["image"] for i in val_idx]
     val_labels = [val_rows[i]["label"] for i in val_idx]
     logger.info(f"Training on {len(train_rows):,} lines, validating on {len(val_images)}")
+    if len(train_rows) < 200:
+        logger.warning(f"Only {len(train_rows)} training lines: fine for a try-out, "
+                       "but a few hundred or more are needed to really adapt the model.")
 
     full_dataset = OCRLineDataset(train_rows, tokenizer, cfg, augment=not args.no_augment)
     predictor = OCRPredictor(model=model, tokenizer=tokenizer, config=cfg)
@@ -300,76 +334,104 @@ def train(args):
     if not metrics_path.exists():
         metrics_path.write_text("epoch,train_loss,val_cer,val_wer,val_exact,lr,minutes\n")
 
-    if start_epoch == 0 and not args.no_initial_eval:
-        initial = validate(predictor, val_images, val_labels)
-        logger.info(f"Before training: val CER {initial['cer']:.4f}  WER {initial['wer']:.4f}  "
-                    f"exact {initial['exact_match']:.4f}")
+    bars = sys.stderr.isatty()
+    step_log = file_only_logger() if bars else logger
+    logger.info(f"{args.epochs - start_epoch} epochs of {sample_size:,} lines ({steps_per_epoch} batches of "
+                f"{args.batch_size}), on {describe(device)}")
 
-    for epoch in range(start_epoch, args.epochs):
-        _set_train_mode(model, cfg.decoder_type)
-        started = time.time()
-        running_loss = 0.0
-        for step, (chunk_lists, label_pad, _texts) in enumerate(loader):
-            chunk_lists = [[c.to(device) for c in img] for img in chunk_lists]
-            label_pad = label_pad.to(device)
+    run_started = time.time()
+    epoch_times = []
+    best_epoch, stale = None, 0
+    with logging_redirect_tqdm():
+        if start_epoch == 0 and not args.no_initial_eval:
+            initial = validate(predictor, val_images, val_labels)
+            logger.info(f"Before training: val CER {_pct(initial['cer'])}, WER {_pct(initial['wer'])}, "
+                        f"exact {_pct(initial['exact_match'])}")
 
-            global_step = epoch * steps_per_epoch + step
-            lr = lr_at(global_step, total_steps, warmup_steps, args.lr, args.min_lr)
-            for pg in optimizer.param_groups:
-                pg["lr"] = lr
+        for epoch in range(start_epoch, args.epochs):
+            _set_train_mode(model, cfg.decoder_type)
+            started = time.time()
+            running_loss = 0.0
+            bar = tqdm(total=sample_size, desc=f"epoch {epoch + 1}/{args.epochs}", unit="line",
+                       dynamic_ncols=True, leave=False, disable=None)
+            for step, (chunk_lists, label_pad, _texts) in enumerate(loader):
+                chunk_lists = [[c.to(device) for c in img] for img in chunk_lists]
+                label_pad = label_pad.to(device)
 
-            optimizer.zero_grad()
-            with torch.autocast(device_type=device.type, dtype=torch.bfloat16,
-                                enabled=(device.type == "cuda")):
-                if cfg.decoder_type == "blockwise":
-                    loss = blockwise_loss_step(model, chunk_lists, label_pad, criterion)
-                else:
-                    loss = ar_loss_step(model, chunk_lists, label_pad, criterion)
-            loss.backward()
-            optimizer.step()
+                global_step = epoch * steps_per_epoch + step
+                lr = lr_at(global_step, total_steps, warmup_steps, args.lr, args.min_lr)
+                for pg in optimizer.param_groups:
+                    pg["lr"] = lr
 
-            running_loss += loss.item()
-            if step % args.log_every == 0:
-                logger.info(f"epoch {epoch + 1}/{args.epochs} step {step}/{steps_per_epoch} "
-                            f"loss={loss.item():.4f} lr={lr:.2e}")
+                optimizer.zero_grad()
+                with torch.autocast(device_type=device.type, dtype=torch.bfloat16,
+                                    enabled=(device.type == "cuda")):
+                    if cfg.decoder_type == "blockwise":
+                        loss = blockwise_loss_step(model, chunk_lists, label_pad, criterion)
+                    else:
+                        loss = ar_loss_step(model, chunk_lists, label_pad, criterion)
+                loss.backward()
+                optimizer.step()
 
-        avg_loss = running_loss / max(1, steps_per_epoch)
-        val = validate(predictor, val_images, val_labels)
-        minutes = (time.time() - started) / 60
-        improved = val["cer"] < best_cer
-        best_cer = min(best_cer, val["cer"])
-        logger.info(f"epoch {epoch + 1}/{args.epochs}: loss {avg_loss:.4f}, val CER {val['cer']:.4f} "
-                    f"WER {val['wer']:.4f} exact {val['exact_match']:.4f} ({minutes:.1f} min)"
-                    + ("  * best so far" if improved else ""))
-        with open(metrics_path, "a", newline="") as f:
-            csv.writer(f).writerow([epoch + 1, f"{avg_loss:.5f}", f"{val['cer']:.5f}", f"{val['wer']:.5f}",
-                                    f"{val['exact_match']:.5f}", f"{lr:.3e}", f"{minutes:.2f}"])
+                running_loss += loss.item()
+                bar.update(label_pad.size(0))
+                bar.set_postfix(loss=f"{running_loss / (step + 1):.4f}", lr=f"{lr:.1e}", refresh=False)
+                if (step + 1) % args.log_every == 0 or step + 1 == steps_per_epoch:
+                    step_log.info(f"epoch {epoch + 1}/{args.epochs} step {step + 1}/{steps_per_epoch} "
+                                  f"loss={loss.item():.4f} lr={lr:.2e}")
+            bar.close()
 
-        checkpoint = {
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "epoch": epoch + 1,
-            "meta": {
-                "decoder_type": cfg.decoder_type,
-                "block_size": cfg.block_size,
-                "vocab": Path(args.vocab).name,
-                "val_cer": val["cer"],
-                "best_val_cer": best_cer,
-            },
-        }
-        torch.save(checkpoint, out_dir / "last.pth")
-        if improved:
-            # best.pth is for evaluating/exporting: weights only, a third of the size.
-            torch.save({k: v for k, v in checkpoint.items() if k != "optimizer_state_dict"}, out_dir / "best.pth")
+            avg_loss = running_loss / max(1, steps_per_epoch)
+            val = validate(predictor, val_images, val_labels)
+            seconds = time.time() - started
+            epoch_times.append(seconds)
+            improved = val["cer"] < best_cer
+            if improved:
+                best_cer, best_epoch, stale = val["cer"], epoch + 1, 0
+            else:
+                stale += 1
+            left = (args.epochs - epoch - 1) * sum(epoch_times) / len(epoch_times)
+            logger.info(f"epoch {epoch + 1}/{args.epochs}: loss {avg_loss:.4f} · val CER {_pct(val['cer'])} "
+                        f"WER {_pct(val['wer'])} exact {_pct(val['exact_match'])}"
+                        + (" (best)" if improved else f" (best {_pct(best_cer)})")
+                        + f" · {_duration(seconds)}" + (f" · about {_duration(left)} left" if left else ""))
+            with open(metrics_path, "a", newline="") as f:
+                csv.writer(f).writerow([epoch + 1, f"{avg_loss:.5f}", f"{val['cer']:.5f}", f"{val['wer']:.5f}",
+                                        f"{val['exact_match']:.5f}", f"{lr:.3e}", f"{seconds / 60:.2f}"])
 
-    logger.info(f"Done. Best validation CER {best_cer:.4f}: {out_dir / 'best.pth'}")
+            checkpoint = {
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "epoch": epoch + 1,
+                "meta": {
+                    "decoder_type": cfg.decoder_type,
+                    "block_size": cfg.block_size,
+                    "vocab": Path(args.vocab).name,
+                    "val_cer": val["cer"],
+                    "best_val_cer": best_cer,
+                },
+            }
+            torch.save(checkpoint, out_dir / "last.pth")
+            if improved:
+                # best.pth is for evaluating/exporting: weights only, a third of the size.
+                torch.save({k: v for k, v in checkpoint.items() if k != "optimizer_state_dict"},
+                           out_dir / "best.pth")
+            if args.patience and stale >= args.patience:
+                logger.info(f"No better validation CER for {stale} epoch{'s' if stale > 1 else ''}: stopping early.")
+                break
+
+    memory = (f", peak GPU memory {torch.cuda.max_memory_allocated(device) / 2**30:.1f} GB"
+              if device.type == "cuda" else "")
+    logger.info(f"Done in {_duration(time.time() - run_started)}{memory}. Best validation CER {_pct(best_cer)}"
+                + (f" (epoch {best_epoch})" if best_epoch else "") + f": {out_dir / 'best.pth'}")
     return out_dir
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--data", nargs="+", default=DEFAULT_TRAIN_DATA,
-                        help="Training data: folders and/or Hugging Face dataset ids (default: the public datasets)")
+    parser.add_argument("--data", nargs="+", default=["synthetic"],
+                        help="Training data: folders, manifests, Hugging Face ids or presets "
+                             "(default: synthetic, the published model's datasets)")
     parser.add_argument("--val-data", nargs="+", help="Validation data (default: hold out 5%% of --data)")
     parser.add_argument("--init", help='Start from these weights: a .pth, or "published" (fine-tuning)')
     parser.add_argument("--resume", help="Continue an interrupted run from its last.pth")
@@ -392,6 +454,8 @@ def parse_args(argv=None):
                         help="Floor LR the cosine decay approaches at the final epoch")
     parser.add_argument("--warmup-epochs", type=int, default=5,
                         help="Epochs of linear warmup from 0 to --lr before cosine decay begins")
+    parser.add_argument("--patience", type=int, default=0,
+                        help="Stop after this many epochs without a better validation CER (default: never)")
     parser.add_argument("--no-augment", action="store_true", help="Train on the images as they are")
     parser.add_argument("--no-initial-eval", action="store_true", help="Skip scoring the model before training")
     parser.add_argument("--device", help="cuda, cuda:1 or cpu (default: cuda if available)")

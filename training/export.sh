@@ -5,8 +5,8 @@
 #
 # Writes OUT/recognition/ (default OUT: a "bundles" folder next to the
 # checkpoint), then checks on a test set that the folder reads every line the
-# same as the PyTorch checkpoint. The test set is training/test_set/khob_eval,
-# or CHECK=DIR (a folder with images/ + labels/); CHECK= skips the check.
+# same as the PyTorch checkpoint (with a progress bar). The test set is the
+# khob preset, or CHECK=DATA (any dataset form); CHECK= skips the check.
 #
 # Use it in the app (the line detector and layout model still come from
 # Hugging Face):
@@ -20,13 +20,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/_env.sh"
 
 checkpoint="$1"
 out="${2:-$(dirname "$checkpoint")/bundles}"
-check="${CHECK-$TRAINING_DIR/test_set/khob_eval}"
+check="${CHECK-khob}"
 
 args=(--model "$checkpoint" --out "$out/recognition" --name netra-ocr-recognition-finetuned)
-if [[ -n "$check" && -d "$check" ]]; then
+if [[ -n "$check" ]]; then
   args+=(--check "$check")
 else
-  echo "Skipping the parity check (no test set at '${check}'; set CHECK=DIR)."
+  echo "Skipping the parity check (CHECK is empty)."
 fi
 netra-train export "${args[@]}"
 

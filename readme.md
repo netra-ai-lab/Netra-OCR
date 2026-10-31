@@ -59,8 +59,8 @@ Netra-OCR was trained entirely on synthetic data: **1.3M** text-line images, of 
 
 | Dataset | Type | Size | Augmentation |
 | :--- | :--- | ---: | :--- |
-| Custom document text | Synthetic, Pillow + a Khmer corpus | 100,000 | Erosion, noise, thinning and thickening, perspective distortion |
-| Custom scene text | Synthetic, SynthTIGER + Stanford Background | 100,000 | Rotation, blur, noise, real backgrounds |
+| [Custom document text](https://huggingface.co/datasets/Netra-Lab/khmer-document-synthetic-low-res) | Synthetic, Pillow + a Khmer corpus | 100,000 | Erosion, noise, thinning and thickening, perspective distortion |
+| [Custom scene text](https://huggingface.co/datasets/Netra-Lab/khmer-scene-text-synthetic-contrast) | Synthetic, SynthTIGER + Stanford Background | 100,000 | Rotation, blur, noise, real backgrounds |
 | [SoyVitou/KhmerSynthetic1M](https://huggingface.co/datasets/SoyVitou/KhmerSynthetic1M) | Synthetic | 1,000,000 | Applied by the source authors |
 | [seanghay/khmer-hanuman-100k](https://huggingface.co/datasets/seanghay/khmer-hanuman-100k) | Synthetic | 100,000 | Applied by the source authors |
 | **Total** | | **1.3M** | |
@@ -69,9 +69,11 @@ Netra-OCR was trained entirely on synthetic data: **1.3M** text-line images, of 
 
 | Test set | Type | Lines | What it tests |
 | :--- | :--- | ---: | :--- |
-| [KHOB](https://github.com/EKYCSolutions/khmer-ocr-benchmark-dataset) | Real | 325 | The public Khmer OCR benchmark: clean backgrounds, compression artefacts |
+| [KHOB](https://huggingface.co/datasets/Netra-Lab/khob-eval) | Real | 325 | The public Khmer OCR benchmark: clean backgrounds, compression artefacts |
 | Legal Documents | Real, our annotation | 220 | Phone photos of birth certificates, diplomas and ID cards: degradation, lighting, distortion |
-| Printed Words | Synthetic | 500 | Short isolated words in 10 fonts. Training lines are mostly mid-to-long, so this tests short input |
+| [Printed Words](https://huggingface.co/datasets/Netra-Lab/khmer-printed-words) | Synthetic | 500 | Short isolated words in 10 fonts. Training lines are mostly mid-to-long, so this tests short input |
+
+KHOB is cropped into lines from the [Khmer OCR Benchmark](https://github.com/EKYCSolutions/khmer-ocr-benchmark-dataset) by EKYC Solutions. KHOB and Printed Words (the first 500 of its 5,000 lines) are on Hugging Face; Legal Documents is not public, because the documents belong to real people.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/netra-ai-lab/Netra-OCR/master/assets/dataset-overview.png" width="1000" alt="Example text lines from the synthetic document and scene text sets, KHOB, legal documents and printed words" />
@@ -266,14 +268,34 @@ The repository also trains the recognizer. Each step is one script, run from a c
 ```bash
 git clone https://github.com/netra-ai-lab/Netra-OCR && cd Netra-OCR
 bash training/setup.sh                                   # .venv with the app + PyTorch training code
-bash training/evaluate.sh published                      # score the model the app ships
-bash training/finetune.sh my_lines/ --name my-model      # fine-tune it on your own text lines
-bash training/evaluate.sh published training/runs/my-model/best.pth --test my_test_lines/
+bash training/check_data.sh my_lines/                    # check your dataset
+bash training/finetune.sh my_lines/ --name my-model      # fine-tune the published model on it
+bash training/evaluate.sh published training/runs/my-model/best.pth --test khob my_test_lines/
 bash training/export.sh training/runs/my-model/best.pth  # ONNX model folder for the app
 NETRA_BUNDLES=training/runs/my-model/bundles netra_ocr serve   # the app, with your model
 ```
 
-Your data is a folder of line images and their text, `my_lines/images/0001.png` with `my_lines/labels/0001.txt`, or a Hugging Face dataset id. `bash training/train.sh` trains from scratch on the public datasets. A GPU is strongly recommended. [training/README.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/training/README.md) covers the data format, the options, reading the results and the advanced tools.
+A dataset is one image per text line, with its text:
+
+```
+my_lines/
+├── images/0001.png  0002.jpg  ...
+└── labels/0001.txt  0002.txt  ...     ← the text in each image, UTF-8
+```
+
+The scripts also take images with a `.txt`/`.gt.txt` beside each, a `.tsv`/`.csv`/`.jsonl` manifest, a Hugging Face dataset id (`user/name:train[:5000]`), or a preset: `khob` and `printed-words` (the test sets above), `synthetic` (the training data). [`training/examples/`](https://github.com/netra-ai-lab/Netra-OCR/tree/master/training/examples) has a 24-line dataset to try.
+
+Every step shows a progress bar, and after each epoch a summary with the validation scores and the time left. A real fine-tune on 2,000 lines on an RTX 3060:
+
+```
+INFO - Before training: val CER 2.01%, WER 13.00%, exact 87.00%
+INFO - epoch 1/3: loss 0.4828 · val CER 1.56% WER 10.00% exact 90.00% (best) · 32 s · about 1.1 min left
+INFO - epoch 2/3: loss 0.1787 · val CER 1.10% WER 6.00% exact 94.00% (best) · 11 s · about 22 s left
+INFO - epoch 3/3: loss 0.1638 · val CER 1.01% WER 5.00% exact 95.00% (best) · 8 s
+INFO - Done in 1.1 min, peak GPU memory 2.4 GB. Best validation CER 1.01% (epoch 3): training/runs/my-model/best.pth
+```
+
+`bash training/train.sh` trains from scratch. A GPU is strongly recommended. [training/README.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/training/README.md) walks through every dataset form, what each script prints, the run folder, reading the results and the advanced tools.
 
 ## 9. Limitations
 

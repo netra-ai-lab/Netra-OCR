@@ -85,6 +85,8 @@ def score(targets_raw, predictions_raw):
         "cer": total_char_edits / total_target_chars if total_target_chars else 0.0,
         "wer": total_word_edits / total_target_words if total_target_words else 0.0,
         "exact_match": exact / n if n else 0.0,
+        "char_edits": total_char_edits,
+        "chars": total_target_chars,
     }
     return metrics, records
 

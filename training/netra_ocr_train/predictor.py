@@ -205,7 +205,7 @@ class OCRPredictor:
         return self.tokenizer.decode(best_seq)
     
     def predict_batch(self, image_list: list, beam_width: int = 1, batch_size: int = 8,
-                      progress: bool = True) -> list:
+                      progress: bool = True, desc: str = "OCR Recognition") -> list:
         """
         Processes a list of images in mini-batches with a progress bar.
         """
@@ -215,7 +215,8 @@ class OCRPredictor:
         all_results = []
         
         # Wrap the range in tqdm for a progress bar
-        pbar = tqdm(total=len(image_list), desc="OCR Recognition", unit="line", disable=not progress)
+        pbar = tqdm(total=len(image_list), desc=desc, unit="line", leave=False, dynamic_ncols=True,
+                    disable=None if progress else True)
 
         for i in range(0, len(image_list), batch_size):
             mini_batch = image_list[i : i + batch_size]

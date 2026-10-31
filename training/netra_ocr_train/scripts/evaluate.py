@@ -11,9 +11,12 @@ A model is one of:
   path/to/folder        an exported model folder (training/export.sh), run the same way
   path/to/model.pth     a PyTorch checkpoint, decoded greedily (--beam N for beam search)
 
-A test set is a folder with images/ + labels/ (one .txt per image), or a
-Hugging Face dataset id ``user/name[:split[:text_column]]``. Default:
-training/test_set/khob_eval when it exists, else SoyVitou/KHOB-LEVEL-1.
+A test set is any data spec (netra_ocr_train/data.py): a preset (khob,
+printed-words), a folder (images/ + labels/, or images with a .txt beside
+each), a manifest (.tsv/.csv/.jsonl) or a Hugging Face dataset id. Default:
+khob, the 325-line KHOB benchmark (Netra-Lab/khob-eval).
+
+A progress bar per model and test set shows the running CER.
 
 Text is compared after the same normalization for every model
 (netra_ocr_train/metrics.py), so the numbers are comparable across runs.
@@ -26,13 +29,15 @@ import logging
 import time
 from pathlib import Path
 
+from tqdm import tqdm
+
 from ..metrics import score, write_records
-from ..utils import HF_CACHE_DIR, RUNS_DIR, TRAINING_DIR, setup_logging, use_hf_cache
+from ..utils import HF_CACHE_DIR, RUNS_DIR, setup_logging, use_hf_cache
 
 logger = logging.getLogger(__name__)
 
-LOCAL_TEST = TRAINING_DIR / "test_set" / "khob_eval"
-PUBLIC_TEST = "SoyVitou/KHOB-LEVEL-1:train:text"
+DEFAULT_TEST = "khob"
+BATCH = 16
 
 
 class _OnnxModel:
@@ -67,7 +72,7 @@ class _TorchModel:
         self.cuda = device.startswith("cuda")
 
     def __call__(self, images):
-        out = self.predictor.predict_batch(images, beam_width=self.beam, batch_size=8)
+        out = self.predictor.predict_batch(images, beam_width=self.beam, batch_size=8, progress=False)
         if self.cuda:
             import torch
             torch.cuda.synchronize()
@@ -90,7 +95,8 @@ def _name(spec: str) -> str:
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("models", nargs="+", help='"published", an exported model folder, or a .pth checkpoint')
-    parser.add_argument("--test", nargs="+", help="Test sets (default: khob_eval, else SoyVitou/KHOB-LEVEL-1)")
+    parser.add_argument("--test", nargs="+", default=[DEFAULT_TEST],
+                        help="Test sets: presets, folders, manifests or Hugging Face ids (default: khob)")
     parser.add_argument("--limit", type=int, help="Score only the first N lines of each test set")
     parser.add_argument("--beam", type=int, default=1, help="Beam width for .pth checkpoints (default 1: greedy, as the app)")
     parser.add_argument("--device", help="cpu, cuda, ... (default: GPU if available)")
@@ -102,16 +108,21 @@ def main(argv=None):
 
     setup_logging()
     use_hf_cache(args.data_dir)
-    from ..data import load_lines
+    from ..data import DataError, load_lines
 
-    tests = args.test or [str(LOCAL_TEST) if LOCAL_TEST.is_dir() else PUBLIC_TEST]
+    tests = args.test
     out = Path(args.out or RUNS_DIR / f"eval-{time.strftime('%Y%m%d-%H%M%S')}")
 
     sets = {}
     for spec in tests:
-        rows = load_lines(spec)
+        try:
+            rows = load_lines(spec)
+        except DataError as e:
+            raise SystemExit(f"\n{e}") from None
         n = min(len(rows), args.limit or len(rows))
-        sets[spec] = ([rows[i]["image"] for i in range(n)], [rows[i]["label"] for i in range(n)])
+        sets[spec] = ([rows[i]["image"] for i in tqdm(range(n), desc=f"reading {spec}", unit="line",
+                                                       leave=False, disable=None)],
+                      [rows[i]["label"] for i in range(n)])
 
     results = []
     for model_spec in args.models:
@@ -119,9 +130,19 @@ def main(argv=None):
         model = load_model(model_spec, args.vocab, args.device, args.beam)
         model(sets[tests[0]][0][:2])   # warm up, so the timing is steady-state
         for test_spec, (images, labels) in sets.items():
-            started = time.perf_counter()
-            predictions = model(images)
-            elapsed = time.perf_counter() - started
+            predictions, elapsed, edits, chars = [], 0.0, 0, 0
+            bar = tqdm(total=len(images), desc=f"{model_spec} on {Path(test_spec).name}", unit="line",
+                       dynamic_ncols=True, disable=None)
+            for i in range(0, len(images), BATCH):
+                started = time.perf_counter()
+                batch = model(images[i:i + BATCH])
+                elapsed += time.perf_counter() - started
+                predictions += batch
+                so_far, _ = score(labels[i:i + BATCH], batch)
+                edits, chars = edits + so_far["char_edits"], chars + so_far["chars"]
+                bar.update(len(batch))
+                bar.set_postfix(CER=f"{100 * edits / max(1, chars):.2f}%")
+            bar.close()
             metrics, records = score(labels, predictions)
             metrics.update(model=model_spec, test=test_spec, ms_per_line=1000 * elapsed / max(1, len(images)))
             results.append(metrics)

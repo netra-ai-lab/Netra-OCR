@@ -124,7 +124,7 @@ def make_encoder(emb_dim=384, nhead=8, num_layers=3, dim_feedforward=1024, dropo
                                            dim_feedforward=dim_feedforward,
                                            dropout=dropout, activation='relu')
     
-    encoder = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
+    encoder = nn.TransformerEncoder(enc_layer, num_layers=num_layers, enable_nested_tensor=False)
     return encoder
 class Merger(nn.Module):
     def __init__(self, emb_dim, max_total_len=4096):

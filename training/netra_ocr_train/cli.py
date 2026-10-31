@@ -1,5 +1,6 @@
 """``netra-train``: one command for the recognizer's train / evaluate / export.
 
+    netra-train check my_lines/
     netra-train train --init published --data my_lines/
     netra-train evaluate published training/runs/<run>/best.pth
     netra-train export --model training/runs/<run>/best.pth --out bundles/recognition
@@ -8,8 +9,13 @@ The bash scripts in training/ wrap these with sensible defaults.
 """
 
 import sys
+import warnings
+
+# PyTorch's: the model mixes a bool padding mask with a float causal mask, which works.
+warnings.filterwarnings("ignore", message="Support for mismatched key_padding_mask and attn_mask")
 
 COMMANDS = {
+    "check": "netra_ocr_train.scripts.check_data",
     "train": "netra_ocr_train.scripts.train",
     "evaluate": "netra_ocr_train.scripts.evaluate",
     "export": "netra_ocr_train.scripts.export_recognizer",
