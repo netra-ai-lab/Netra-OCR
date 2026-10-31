@@ -2,12 +2,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Tuple, Union
 
-import cv2
 import numpy as np
 from PIL import Image
 
+from ..imaging import read_bgr
+
 # A detector input: a file path, or an already-decoded BGR array (as returned
-# by cv2.imread). Accepting arrays lets callers that already hold the page in
+# by imaging.read_bgr). Accepting arrays lets callers that already hold the page in
 # memory (PDF rasterization, the server) skip a temp-file round trip.
 ImageInput = Union[str, np.ndarray]
 
@@ -23,10 +24,7 @@ def load_bgr(image: ImageInput) -> np.ndarray:
     """Return ``image`` as a BGR ndarray, reading it from disk if it's a path."""
     if isinstance(image, np.ndarray):
         return image
-    img_bgr = cv2.imread(image)
-    if img_bgr is None:
-        raise FileNotFoundError(f"Could not read image: {image}")
-    return img_bgr
+    return read_bgr(image)
 
 
 class BaseTextDetector(ABC):

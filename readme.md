@@ -184,7 +184,7 @@ docker run -d --name netra-ocr -p 8000:8000 -v netra-data:/data ghcr.io/netra-ai
 | :--- | :--- |
 | Platforms | Windows and Linux PCs (x86-64) and ARM64, including Apple Silicon Macs |
 | GPU | Not needed; the image is CPU-only |
-| Download | About 520 MB (1.6 GB on disk), every model included |
+| Download | About 260 MB (780 MB on disk), every model included |
 | Speed | About 1.1 s per page on a desktop CPU (0.8–1.7 s); longer on a laptop |
 | Memory | About 0.4 GB with the models loaded; up to 2.3 GB while reading a 10-page PDF |
 | Internet | Not needed after the download. Files never leave your computer. |
@@ -202,12 +202,15 @@ pip install "netra-ocr[cpu]"      # or "netra-ocr[gpu]" for an NVIDIA GPU
 | --- | --- |
 | `cpu` | ONNX Runtime for the CPU. Pick this or `gpu`: every model needs one of them |
 | `gpu` | ONNX Runtime for NVIDIA GPUs (CUDA), with the CPU as fallback. Don't install it beside `cpu` |
-| *(always)* | The recognizer, the YOLO text-line and logo detector, layout analysis and the `legacy` detector |
-| `tesseract` | The Tesseract detector; also needs the system Tesseract binary |
+| *(always)* | The recognizer, the YOLO text-line and logo detector and layout analysis |
 | `docx` | Word output |
 | `pdf` | PDF input |
-| `server` | The web app and REST API (`netra_ocr serve`), with `tesseract`, `pdf` and `docx` |
+| `server` | The web app and REST API (`netra_ocr serve`), with `pdf` and `docx` |
+| `legacy` | The classic computer-vision line detector (adds OpenCV) |
+| `tesseract` | The Tesseract line detector (adds OpenCV, SciPy, scikit-image); also needs the system Tesseract binary |
 | `full` | Everything above, on the CPU |
+
+`netra-ocr[cpu]` is about 55 MB of packages (numpy, Pillow, ONNX Runtime, `huggingface_hub`), and the models it downloads on first use take about 120 MB: no PyTorch, no OpenCV.
 
 Every model runs on [ONNX Runtime](https://onnxruntime.ai) (the `cpu` or `gpu` extra installs it); PyTorch isn't needed. Each model downloads from [Hugging Face](https://huggingface.co/Netra-Lab/Netra-OCR) the first time it's used, only the files your device needs, and is cached under `~/.cache/huggingface` (`HF_HOME`). A GPU is used when the `gpu` extra is installed; `NETRA_DEVICE=cpu` forces the CPU.
 
@@ -237,7 +240,7 @@ text = pipeline.process_image(image_path="document.png", output_path="document.d
 netra_ocr --image scan.jpg --output result.txt                    # YOLO detector, plain text
 netra_ocr --image scan.jpg --output result.docx                   # Word, logos embedded as images
 netra_ocr --image letter.pdf --output letter.docx --layout        # headings, tables and figures kept
-netra_ocr --image scan.jpg --output result.txt --detector legacy  # no extras needed
+netra_ocr --image scan.jpg --output result.txt --detector legacy  # needs the legacy extra
 ```
 
 **Web app and REST API.** The Docker image above, or without Docker:

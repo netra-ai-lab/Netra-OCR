@@ -27,33 +27,36 @@ classifiers = [
 # (netra_ocr/inference/), with no PyTorch. Models are ONNX model folders
 # downloaded on first use from https://huggingface.co/Netra-Lab/Netra-OCR. Pick exactly one
 # ONNX Runtime build through the "cpu" or "gpu" extra (they can't be installed
-# side by side).
+# side by side). Image operations use numpy and Pillow (netra_ocr/imaging.py);
+# OpenCV is only needed by the optional legacy and Tesseract detectors.
 dependencies = [
     "pillow>=10.2.0,<11.0.0",
     "numpy",
-    "opencv-python",
     "huggingface_hub>=0.20",
 ]
 
 [project.optional-dependencies]
 cpu = ["onnxruntime>=1.20"]
 gpu = ["onnxruntime-gpu>=1.20"]
-# The Tesseract detector backend (netra_ocr/detectors/tesseract_lines.py) pulls in heavier deps and
+# The Tesseract detector (netra_ocr/detectors/tesseract_lines.py) pulls in heavier deps and
 # also needs the system Tesseract binary installed separately.
-tesseract = ["pytesseract", "scipy", "scikit-image", "networkx"]
+tesseract = ["pytesseract", "scipy", "scikit-image", "networkx", "opencv-python-headless"]
+# The classic computer-vision detector (netra_ocr/detectors/legacy_lines.py).
+legacy = ["opencv-python-headless"]
 # .docx output support.
 docx = ["python-docx"]
 # PDF input (rendered with pdfium).
 pdf = ["pypdfium2"]
 # The web app + REST API (netra_ocr serve). Add "cpu" or "gpu" for the runtime.
-server = ["fastapi", "uvicorn[standard]", "python-multipart", "netra-ocr[tesseract,pdf,docx]"]
+# The legacy and Tesseract detectors appear in it when their extras are installed.
+server = ["fastapi", "uvicorn[standard]", "python-multipart", "netra-ocr[pdf,docx]"]
 # Kept for backwards compatibility: the YOLO detector and layout analysis are
 # part of the core now, and the old Flask UI was replaced by the server.
 yolo = []
 layout = []
 web = ["netra-ocr[server]"]
 # Everything, on CPU.
-full = ["netra-ocr[cpu,tesseract,docx,pdf,server]"]
+full = ["netra-ocr[cpu,tesseract,legacy,docx,pdf,server]"]
 
 [project.urls]
 Homepage = "https://github.com/netra-ai-lab/Khmer-OCR-CNN-Transformer"

@@ -31,11 +31,11 @@ import argparse
 import sys
 from typing import Callable
 
-import cv2
 from PIL import Image
 
 from .detectors import get_detector
 from .document import AssetStore, Document
+from .imaging import bgr_to_rgb
 from .io import count_pages, iter_pages, sniff_kind
 from .recognition import recognize_batch
 from .exporters.lines import save_output, SUPPORTED_FORMATS
@@ -78,7 +78,7 @@ class KhmerOCRPipeline:
         assets = assets if assets is not None else AssetStore()
         h, w = img_bgr.shape[:2]
         page_asset = assets.put(f"page-{page_index}",
-                                Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)))
+                                Image.fromarray(bgr_to_rgb(img_bgr)))
         page = {"index": page_index, "width": w, "height": h, "image": page_asset}
 
         detected = self.detector.detect(img_bgr)

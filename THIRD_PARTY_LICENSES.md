@@ -12,7 +12,8 @@ example the Docker images) or **offer it as a network service**.
 | [pypdfium2](https://github.com/pypdfium2-team/pypdfium2) / PDFium | PDF rendering | Apache-2.0 / BSD-3-Clause | `pdf`, `server` extras |
 | [FastAPI](https://github.com/fastapi/fastapi), [Uvicorn](https://github.com/encode/uvicorn) | Web server | MIT / BSD-3-Clause | `server` extra |
 | [python-docx](https://github.com/python-openxml/python-docx) | Word export | MIT | `docx`, `server` extras |
-| [Tesseract](https://github.com/tesseract-ocr/tesseract) | Optional line detector | Apache-2.0 | `tesseract` extra; Docker images |
+| [Tesseract](https://github.com/tesseract-ocr/tesseract) | Optional line detector | Apache-2.0 | `tesseract` extra (system binary) |
+| [OpenCV](https://github.com/opencv/opencv) | The optional `legacy` and `tesseract` line detectors | Apache-2.0 | `legacy`, `tesseract` extras |
 | [Kantumruy Pro](https://fonts.google.com/specimen/Kantumruy+Pro) | UI typeface | SIL OFL 1.1 | bundled in the web UI |
 | [ultralytics](https://github.com/ultralytics/ultralytics), [doclayout-yolo](https://github.com/opendatalab/DocLayout-YOLO) | Training and exporting the detectors | AGPL-3.0 | `training/` only |
 | [PyTorch](https://github.com/pytorch/pytorch) | Training and exporting | BSD-3-Clause | `training/` only |

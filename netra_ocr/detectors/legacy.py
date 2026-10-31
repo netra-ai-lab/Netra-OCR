@@ -1,11 +1,18 @@
-import cv2
 from PIL import Image
+
+from ..imaging import bgr_to_rgb
 from .base import BaseTextDetector, DetectedLine, ImageInput, load_bgr
 
 
 class LegacyDetector(BaseTextDetector):
     def __init__(self, pad: int | None = None, **kwargs):
-        from .legacy_lines import ImageProcessingTextDetector
+        try:
+            from .legacy_lines import ImageProcessingTextDetector
+        except ImportError as e:
+            raise ImportError(
+                "The legacy detector requires the 'legacy' extra (OpenCV). "
+                "Install it with: pip install \"netra-ocr[legacy]\""
+            ) from e
         # `pad` is applied per-box AFTER detection (see detect), not passed into
         # the detector's internal `padding`. The internal padding influences box
         # merging, so feeding `pad` there would change the number of boxes as the
@@ -17,7 +24,7 @@ class LegacyDetector(BaseTextDetector):
         img_bgr = load_bgr(image)
         line_boxes = self._detector.detect_lines(img_bgr)
         h_img, w_img = img_bgr.shape[:2]
-        pil_img = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
+        pil_img = Image.fromarray(bgr_to_rgb(img_bgr))
         lines = []
         for (x, y, w, h) in line_boxes:
             # Apply user padding per-box, clamped to image bounds. Box count is

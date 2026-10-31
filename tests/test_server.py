@@ -104,3 +104,12 @@ def test_api_key(tmp_path, monkeypatch):
         assert c.get("/v1/jobs?key=s3cret").status_code == 200
         assert c.get("/health").status_code == 200          # health and UI stay open
         assert c.get("/").status_code == 200
+
+
+def test_only_installed_detectors_are_offered(client, monkeypatch):
+    from netra_ocr.server import app as app_mod
+    monkeypatch.setattr(app_mod, "available_detectors", lambda: ["yolo"])
+    assert client.get("/v1/info").json()["detectors"] == ["yolo"]
+    r = client.post("/v1/ocr", files={"file": ("a.png", png_bytes(), "image/png")},
+                    data={"detector": "tesseract"})
+    assert r.status_code == 422 and "isn't installed" in r.json()["detail"]
