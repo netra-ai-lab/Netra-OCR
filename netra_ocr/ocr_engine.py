@@ -34,7 +34,7 @@ from .document import AssetStore, Document
 from .io import count_pages, iter_pages, sniff_kind
 from .recognition.recognize_text import recognize_batch
 from .output_formatters import save_output, SUPPORTED_FORMATS
-from . import structure
+from . import runtime_engine, structure
 
 
 class KhmerOCRPipeline:
@@ -53,11 +53,19 @@ class KhmerOCRPipeline:
             kwargs["conf"] = conf
         if pad is not None:
             kwargs["pad"] = pad
-        self.detector = get_detector(detector, **kwargs)
+        # NETRA_ENGINE=runtime runs the YOLO detector, layout model and
+        # recognizer on Netra Runtime (ONNX Runtime) -- see runtime_engine.py.
+        self.engine = runtime_engine.engine()
+        if self.engine == "runtime" and detector == "yolo":
+            self.detector = runtime_engine.RuntimeYoloDetector(**kwargs)
+        else:
+            self.detector = get_detector(detector, **kwargs)
         self.decoder = decoder
         self.layout = layout
         self.layout_analyzer = None
-        if layout:
+        if layout and self.engine == "runtime":
+            self.layout_analyzer = runtime_engine.RuntimeLayoutAnalyzer(conf=layout_conf)
+        elif layout:
             from .layout.doclayout import DocLayoutYoloAnalyzer
             self.layout_analyzer = DocLayoutYoloAnalyzer(conf=layout_conf)
 
@@ -120,6 +128,9 @@ class KhmerOCRPipeline:
     def _recognize(self, crops, beam_width, batch_size):
         if not crops:
             return []
+        if self.engine == "runtime":
+            return runtime_engine.recognize_batch(crops, decoder=self.decoder, beam_width=beam_width,
+                                                  batch_size=max(batch_size, 16))
         return recognize_batch(crops, beam_width=beam_width, batch_size=batch_size, decoder=self.decoder)
 
     def process_image(
@@ -162,8 +173,7 @@ class KhmerOCRPipeline:
 
         # STEP 3: RECOGNITION (text only)
         ocr_queue = [dl.crop for dl in text_lines]
-        recognitions = recognize_batch(ocr_queue, beam_width=beam_width, batch_size=batch_size, decoder=self.decoder) \
-                       if ocr_queue else []
+        recognitions = self._recognize(ocr_queue, beam_width, batch_size)
 
         # STEP 4: BUILD SEGMENTS (merged, sorted top-to-bottom)
         segments = []

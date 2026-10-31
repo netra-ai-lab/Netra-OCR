@@ -72,17 +72,22 @@ class DocLayoutYoloAnalyzer(BaseLayoutAnalyzer):
         self._imgsz = imgsz
         self._device = device or os.environ.get("NETRA_DEVICE") or None
 
-    def analyze(self, img_bgr: np.ndarray) -> List[LayoutRegion]:
-        h, w = img_bgr.shape[:2]
+    def _predict(self, img_bgr: np.ndarray):
+        """Raw model output: ``[(x1 y1 x2 y2, class name, score)]`` in image pixels."""
         kwargs = {"imgsz": self._imgsz, "conf": self._conf, "verbose": False}
         if self._device:
             kwargs["device"] = self._device
         result = self._model.predict(img_bgr, **kwargs)[0]
+        return [(box, self._names[int(cls_id)], float(score))
+                for box, cls_id, score in zip(result.boxes.xyxy.cpu().numpy(),
+                                              result.boxes.cls.cpu().numpy(),
+                                              result.boxes.conf.cpu().numpy())]
+
+    def analyze(self, img_bgr: np.ndarray) -> List[LayoutRegion]:
+        h, w = img_bgr.shape[:2]
         regions = []
-        for box, cls_id, score in zip(result.boxes.xyxy.cpu().numpy(),
-                                      result.boxes.cls.cpu().numpy(),
-                                      result.boxes.conf.cpu().numpy()):
+        for box, label, score in self._predict(img_bgr):
             x1, y1, x2, y2 = (max(0, int(box[0])), max(0, int(box[1])),
                               min(w, int(box[2])), min(h, int(box[3])))
-            regions.append(LayoutRegion(self._names[int(cls_id)], (x1, y1, x2, y2), float(score)))
+            regions.append(LayoutRegion(label, (x1, y1, x2, y2), score))
         return dedupe_regions(regions)

@@ -222,11 +222,15 @@ class JobManager:
 
     def _do_warmup(self) -> None:
         try:
+            from .. import runtime_engine
             from ..recognition.config import describe_device
             from ..recognition.recognize_text import _get_predictor
             s = self.settings
             self._pipeline(JobOptions(layout=True, detector=s.default_detector, decoder=s.default_decoder))
-            _get_predictor(decoder=s.default_decoder)
+            if runtime_engine.engine() == "runtime":
+                runtime_engine.load(s.default_decoder)
+            else:
+                _get_predictor(decoder=s.default_decoder)
             logger.info("Models loaded on %s", describe_device())
         except Exception:
             logger.exception("Model warmup failed; models will load on the first job")

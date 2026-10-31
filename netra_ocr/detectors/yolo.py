@@ -27,37 +27,39 @@ class YoloDetector(BaseTextDetector):
         self._refine = refine
         self._gap_ratio = gap_ratio
 
-    def detect(self, image: ImageInput) -> list:
-        img_bgr = load_bgr(image)
+    def _predict(self, img_bgr):
+        """Raw model output: ``(boxes (N, 4) x1 y1 x2 y2, class ids (N,))`` in image pixels."""
         # NETRA_DEVICE pins every model to one device (e.g. "cpu" on a GPU
         # host); unset, ultralytics picks the GPU when there is one.
         device = os.environ.get("NETRA_DEVICE")
-        results = self._model.predict(
+        result = self._model.predict(
             source=img_bgr,
             conf=self._conf,
             iou=self._iou,
             imgsz=640,
             verbose=False,
             **({"device": device} if device else {}),
-        )
+        )[0]
+        return result.boxes.xyxy.cpu().numpy(), result.boxes.cls.cpu().numpy()
+
+    def detect(self, image: ImageInput) -> list:
+        img_bgr = load_bgr(image)
         img_h, img_w = img_bgr.shape[:2]
 
         # Pass 1: collect raw (box, label), applying the fixed pad + min-size filter.
         text_boxes, logo_boxes = [], []
-        for result in results:
-            boxes   = result.boxes.xyxy.cpu().numpy()   # (N, 4) — x1 y1 x2 y2
-            classes = result.boxes.cls.cpu().numpy()    # (N,)  integer class ids
-            for box, cls_id in zip(boxes, classes):
-                x1, y1, x2, y2 = (
-                    max(0, int(box[0]) - self._pad), max(0, int(box[1]) - self._pad),
-                    min(img_w, int(box[2]) + self._pad), min(img_h, int(box[3]) + self._pad),
-                )
-                if x2 - x1 < 4 or y2 - y1 < 4:
-                    continue
-                if int(cls_id) == 1:
-                    logo_boxes.append((x1, y1, x2, y2))
-                else:
-                    text_boxes.append((x1, y1, x2, y2))
+        boxes, classes = self._predict(img_bgr)
+        for box, cls_id in zip(boxes, classes):
+            x1, y1, x2, y2 = (
+                max(0, int(box[0]) - self._pad), max(0, int(box[1]) - self._pad),
+                min(img_w, int(box[2]) + self._pad), min(img_h, int(box[3]) + self._pad),
+            )
+            if x2 - x1 < 4 or y2 - y1 < 4:
+                continue
+            if int(cls_id) == 1:
+                logo_boxes.append((x1, y1, x2, y2))
+            else:
+                text_boxes.append((x1, y1, x2, y2))
 
         # Pass 2: content-aware horizontal refinement of text boxes only.
         if self._refine and text_boxes:
