@@ -1,5 +1,7 @@
-import torch
 import logging
+import os
+
+import torch
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -8,6 +10,18 @@ logger = logging.getLogger(__name__)
 TRAINING_DIR = Path(__file__).resolve().parents[1]
 RUNS_DIR = TRAINING_DIR / "runs"
 HF_CACHE_DIR = TRAINING_DIR / ".hf_cache"
+
+
+def use_hf_cache(cache_dir: str | Path):
+    """Keep Hugging Face downloads (datasets, checkpoints) under ``cache_dir``.
+
+    Sets the hub and datasets caches rather than HF_HOME, so the user's saved
+    login (``hf auth login``) still applies. Call before importing
+    ``datasets`` / ``huggingface_hub``.
+    """
+    cache_dir = Path(cache_dir).resolve()
+    os.environ.setdefault("HF_HUB_CACHE", str(cache_dir / "hub"))
+    os.environ.setdefault("HF_DATASETS_CACHE", str(cache_dir / "datasets"))
 
 def setup_logging(log_file: str | Path | None = None):
     handlers = [logging.StreamHandler()]
@@ -73,10 +87,10 @@ def autodetect_config(model_path: str | Path) -> dict:
 
 # The published PyTorch checkpoint (the model the app's ONNX recognizer was
 # exported from), pinned so fine-tuning always starts from the same weights.
-PUBLISHED_REPO = "Darayut/khmer-text-recognition"
-PUBLISHED_REVISION = "3c29a40302ee5d6baaf97b50c75ca0421683cd8b"
-PUBLISHED_CHECKPOINTS = {"published": "khmerocr_cluster_ar.pth",
-                         "published-blockwise": "khmerocr_cluster_blockwise.pth"}
+PUBLISHED_REPO = "Netra-Lab/Netra-OCR"
+PUBLISHED_REVISION = "c158e0a7f6bdc1efafe5b70578b180967b01023e"
+PUBLISHED_CHECKPOINTS = {"published": "pytorch/khmerocr_cluster_ar.pth",
+                         "published-blockwise": "pytorch/khmerocr_cluster_blockwise.pth"}
 
 
 def resolve_checkpoint(spec: str | Path) -> Path:

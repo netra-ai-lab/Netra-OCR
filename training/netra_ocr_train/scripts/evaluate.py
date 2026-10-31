@@ -23,12 +23,11 @@ Writes one predictions CSV per model and test set, plus summary.json, to --out.
 import argparse
 import json
 import logging
-import os
 import time
 from pathlib import Path
 
 from ..metrics import score, write_records
-from ..utils import HF_CACHE_DIR, RUNS_DIR, TRAINING_DIR, setup_logging
+from ..utils import HF_CACHE_DIR, RUNS_DIR, TRAINING_DIR, setup_logging, use_hf_cache
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +101,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     setup_logging()
-    os.environ.setdefault("HF_HOME", str(Path(args.data_dir).resolve()))
+    use_hf_cache(args.data_dir)
     from ..data import load_lines
 
     tests = args.test or [str(LOCAL_TEST) if LOCAL_TEST.is_dir() else PUBLIC_TEST]

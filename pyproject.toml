@@ -62,7 +62,7 @@ full = ["netra-ocr[cpu,tesseract,legacy,docx,pdf,server]"]
 Homepage = "https://github.com/netra-ai-lab/Khmer-OCR-CNN-Transformer"
 Repository = "https://github.com/netra-ai-lab/Khmer-OCR-CNN-Transformer"
 "Model Download" = "https://huggingface.co/Netra-Lab/Netra-OCR"
-"PyTorch weights" = "https://huggingface.co/Darayut/khmer-text-recognition"
+"PyTorch weights" = "https://huggingface.co/Netra-Lab/Netra-OCR/tree/main/pytorch"
 
 [project.scripts]
 netra_ocr = "netra_ocr.ocr_engine:main"

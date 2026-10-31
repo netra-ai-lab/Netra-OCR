@@ -15,7 +15,7 @@ which aren't installed there):
         --deepseek-dir training/weights/deepseek_ocr_base
 
 Training data: an even sample from seanghay/khmer-hanuman-100k plus the two
-Darayut/* synthetic sets (all already in .hf_cache, symlinked into
+Netra-Lab/* synthetic sets (all already in .hf_cache, symlinked into
 ~/.cache/huggingface) -- KhmerSynthetic1M is deliberately excluded
 (research-only license). Recipes follow unsloth's DeepSeek-OCR notebook
 (LoRA r=16, lr 2e-4, adamw_8bit, linear schedule) and its vision-notebook
@@ -43,8 +43,8 @@ DEEPSEEK_PROMPT = "<image>\nFree OCR. "
 
 TRAIN_SOURCES = [  # (repo_id, text_column)
     ("seanghay/khmer-hanuman-100k", "text"),
-    ("Darayut/khmer-scene-text-synthetic-contrast", "label"),
-    ("Darayut/khmer-document-synthetic-low-res", "label"),
+    ("Netra-Lab/khmer-scene-text-synthetic-contrast", "label"),
+    ("Netra-Lab/khmer-document-synthetic-low-res", "label"),
 ]
 
 

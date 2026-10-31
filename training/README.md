@@ -58,7 +58,7 @@ Characters the vocabulary doesn't cover are listed in a warning at the start of 
 bash training/finetune.sh my_lines/ --name my-model
 ```
 
-This starts from the published model's weights: [`khmerocr_cluster_ar.pth`](https://huggingface.co/Darayut/khmer-text-recognition), downloaded once.
+This starts from the published model's weights: [`pytorch/khmerocr_cluster_ar.pth`](https://huggingface.co/Netra-Lab/Netra-OCR/tree/main/pytorch) in Netra-Lab/Netra-OCR, downloaded once.
 
 What it does:
 - holds out 5% of your lines (50–500) to judge each epoch;

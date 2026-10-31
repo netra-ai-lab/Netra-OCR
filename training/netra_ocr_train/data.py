@@ -41,8 +41,8 @@ def clean_label(text: str) -> str:
 DEFAULT_TRAIN_DATA = [
     "SoyVitou/KhmerSynthetic1M",
     "seanghay/khmer-hanuman-100k:train:text",
-    "Darayut/khmer-scene-text-synthetic-contrast",
-    "Darayut/khmer-document-synthetic-low-res",
+    "Netra-Lab/khmer-scene-text-synthetic-contrast",
+    "Netra-Lab/khmer-document-synthetic-low-res",
 ]
 
 

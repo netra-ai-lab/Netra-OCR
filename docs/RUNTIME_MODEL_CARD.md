@@ -16,7 +16,7 @@ tags:
 ---
 
 <p align="center">
-  <img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/header.png" width="260" alt="Netra Lab" />
+  <img src="https://huggingface.co/Netra-Lab/Netra-OCR/resolve/main/assets/header.png" width="260" alt="Netra Lab" />
 </p>
 
 <hr>
@@ -24,7 +24,7 @@ tags:
 <p align="center">
   <a href="https://github.com/netra-ai-lab/Netra-OCR"><b>GitHub</b></a> |
   <a href="https://pypi.org/project/netra-ocr/"><b>PyPI</b></a> |
-  <a href="https://huggingface.co/Darayut/khmer-text-recognition"><b>PyTorch weights</b></a>
+  <a href="https://huggingface.co/Netra-Lab/Netra-OCR/tree/main/pytorch"><b>PyTorch weights</b></a>
 </p>
 
 # Netra OCR
@@ -78,7 +78,27 @@ Measured against the PyTorch models on `test_set/khob_eval` (325 lines) and 10 t
 - **fp16:** default on CUDA for the detectors (DocLayout 65 → 39 ms). Not used on WebGPU, where it is broken in onnxruntime-web 1.31.
 - **Browser:** WebAssembly gives the same text on 325/325 lines and detector boxes at IoU 1.0; WebGPU in Chrome gave the same text on 100/100 lines.
 
-The recognizer's CER is the PyTorch model's: see [Darayut/khmer-text-recognition](https://huggingface.co/Darayut/khmer-text-recognition).
+The recognizer's CER is the PyTorch model's: see the [results](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RESULTS.md).
+
+## PyTorch checkpoints
+
+`pytorch/` holds the recognizer the ONNX folders were exported from, for fine-tuning and research. The app doesn't download it.
+
+| File | Contents |
+|---|---|
+| `pytorch/khmerocr_cluster_ar.pth` | the recognizer (cluster vocabulary, autoregressive decoder), exported as `recognition/` |
+| `pytorch/khmerocr_cluster_blockwise.pth` | the same model plus the blockwise proposal head, exported as `recognition-blockwise/` |
+| `pytorch/char2idx_cluster.json` | their vocabulary |
+
+To fine-tune on your own text lines, from a clone of the [GitHub repo](https://github.com/netra-ai-lab/Netra-OCR):
+
+```bash
+bash training/setup.sh
+bash training/finetune.sh my_lines/ --name my-model     # starts from pytorch/khmerocr_cluster_ar.pth
+bash training/export.sh training/runs/my-model/best.pth
+```
+
+See [training/README.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/training/README.md).
 
 ## Files
 
@@ -92,6 +112,6 @@ The Python reader is [`netra_ocr/inference/`](https://github.com/netra-ai-lab/Ne
 
 ## License and attribution
 
-- **`recognition/`, `recognition-blockwise/`:** MIT. Trained by Netra Lab; the training data includes [SoyVitou/KhmerSynthetic1M](https://huggingface.co/datasets/SoyVitou/KhmerSynthetic1M), whose terms restrict use to research — check them before commercial use.
+- **`recognition/`, `recognition-blockwise/`, `pytorch/`:** MIT. Trained by Netra Lab; the training data includes [SoyVitou/KhmerSynthetic1M](https://huggingface.co/datasets/SoyVitou/KhmerSynthetic1M), whose terms restrict use to research — check them before commercial use.
 - **`lines/`:** AGPL-3.0, as a model trained with Ultralytics YOLO.
 - **`layout/`:** Apache-2.0. Converted from [juliozhao/DocLayout-YOLO-DocStructBench](https://huggingface.co/juliozhao/DocLayout-YOLO-DocStructBench) by [opendatalab/DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO); please cite their paper.

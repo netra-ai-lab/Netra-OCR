@@ -9,7 +9,7 @@
   <a href="https://github.com/netra-ai-lab/Netra-OCR"><b>GitHub</b></a> |
   <a href="https://github.com/netra-ai-lab/Netra-OCR/pkgs/container/netra-ocr"><b>Docker Image</b></a> |
   <a href="https://huggingface.co/Netra-Lab/Netra-OCR"><b>Model Download</b></a> |
-  <a href="https://huggingface.co/collections/Darayut/khmer-text-synthetic"><b>Dataset Download</b></a> |
+  <a href="https://huggingface.co/Netra-Lab"><b>Dataset Download</b></a> |
   <a href="https://huggingface.co/spaces/Darayut/Khmer-Text-Recognition"><b>Inference Space</b></a> |
   <a href="https://github.com/netra-ai-lab/Netra-OCR/blob/master/Paper/A%20Squeeze-and-Excitation%20Transformer%20Network%20for%20Khmer%20Optical%20Character%20Recognition.pdf"><b>Paper</b></a>
 </p>
@@ -17,7 +17,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-e75f1b?labelColor=4f2724" alt="License: MIT" />
   <img src="https://img.shields.io/badge/python-3.10%2B-e75f1b?labelColor=4f2724&logo=python&logoColor=f5efe5" alt="Python 3.10+" />
-  <a href="https://huggingface.co/Darayut/khmer-text-recognition"><img src="https://img.shields.io/badge/params-19M-e75f1b?labelColor=4f2724&logo=huggingface&logoColor=f5efe5" alt="19M parameters" /></a>
+  <a href="https://huggingface.co/Netra-Lab/Netra-OCR"><img src="https://img.shields.io/badge/params-19M-e75f1b?labelColor=4f2724&logo=huggingface&logoColor=f5efe5" alt="19M parameters" /></a>
   <a href="https://pypi.org/project/netra-ocr/"><img src="https://img.shields.io/badge/pip-netra--ocr-e75f1b?labelColor=4f2724&logo=pypi&logoColor=f5efe5" alt="pip install netra-ocr" /></a>
   <a href="https://github.com/netra-ai-lab/Netra-OCR/pkgs/container/netra-ocr"><img src="https://img.shields.io/badge/docker-ghcr.io-e75f1b?labelColor=4f2724&logo=docker&logoColor=f5efe5" alt="Docker image" /></a>
 </p>

@@ -54,7 +54,7 @@ from ..config import OCRConfig
 from ..data import DEFAULT_TRAIN_DATA, OCRLineDataset, load_lines, ocr_collate_fn, split_off, unknown_characters
 from ..metrics import score
 from ..predictor import OCRPredictor
-from ..utils import HF_CACHE_DIR, RUNS_DIR, autodetect_config, resolve_checkpoint, setup_logging
+from ..utils import HF_CACHE_DIR, RUNS_DIR, autodetect_config, resolve_checkpoint, setup_logging, use_hf_cache
 
 DEFAULT_VOCAB = Path(__file__).resolve().parents[1] / "char2idx_cluster.json"
 VAL_LIMIT = 1000   # validation lines decoded per epoch, at most
@@ -184,10 +184,10 @@ def train(args):
     setup_logging(log_file=out_dir / "train.log")
     logger.info(f"Run folder: {out_dir}")
 
-    # Must be set before any `import datasets`/`huggingface_hub` so the Hub's
+    # Before any `import datasets`/`huggingface_hub`, so the Hub's
     # download + processed-dataset caches land under the project instead of
     # the default ~/.cache/huggingface/.
-    os.environ.setdefault("HF_HOME", str(Path(args.data_dir).resolve()))
+    use_hf_cache(args.data_dir)
 
     start_from = resolve_checkpoint(args.resume or args.init) if (args.resume or args.init) else None
     cfg = OCRConfig(

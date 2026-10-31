@@ -2,8 +2,8 @@
 library_name: transformers
 license: mit
 datasets:
-- Darayut/khmer-document-synthetic-low-res
-- Darayut/khmer-scene-text-synthetic-contrast
+- Netra-Lab/khmer-document-synthetic-low-res
+- Netra-Lab/khmer-scene-text-synthetic-contrast
 - SoyVitou/KhmerSynthetic1M
 - seanghay/khmer-hanuman-100k
 language:
@@ -23,7 +23,7 @@ tags:
 ---
 
 <p align="center">
-  <img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/header.png" width="260" alt="Netra Lab" />
+  <img src="https://huggingface.co/Netra-Lab/Netra-OCR/resolve/main/assets/header.png" width="260" alt="Netra Lab" />
 </p>
 
 <hr>
@@ -32,11 +32,13 @@ tags:
   <a href="https://github.com/netra-ai-lab/Netra-OCR"><b>GitHub</b></a> |
   <a href="https://github.com/netra-ai-lab/Netra-OCR/pkgs/container/netra-ocr"><b>Docker Image</b></a> |
   <a href="https://pypi.org/project/netra-ocr/"><b>PyPI</b></a> |
-  <a href="https://huggingface.co/collections/Darayut/khmer-text-synthetic"><b>Datasets</b></a> |
+  <a href="https://huggingface.co/Netra-Lab"><b>Datasets</b></a> |
   <a href="https://huggingface.co/spaces/Darayut/Khmer-Text-Recognition"><b>Inference Space</b></a>
 </p>
 
 # Netra-OCR
+
+> **These checkpoints now live in [Netra-Lab/Netra-OCR](https://huggingface.co/Netra-Lab/Netra-OCR/tree/main/pytorch) (`pytorch/`), next to the ONNX models the app runs. New downloads and fine-tuning use that copy; the files here are kept for existing links.**
 
 *A Squeeze-and-Excitation Transformer Network for Khmer Optical Character Recognition*
 
@@ -62,7 +64,7 @@ Character error rate in %, on single text-line crops. Lower is better.
 - **Where it is weakest:** phone photos of legal documents (5.31%) and short isolated words (2.95%), against 0.96% on KHOB.
 - **Baselines:** Qwen2.5-VL and DeepSeek-OCR don't document Khmer support, so each had a short LoRA fine-tune (300 steps on 6,000 of our training lines). Netra-OCR uses beam search of width 3. Printed Words uses the first 500 of its 5,000 lines for every engine.
 
-<p align="center"><img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/results.png" width="100%" alt="Character error rate of Tesseract, Surya OCR, Qwen2.5-VL, DeepSeek-OCR and Netra-OCR on KHOB, legal documents and printed words"></p>
+<p align="center"><img src="https://huggingface.co/Netra-Lab/Netra-OCR/resolve/main/assets/results.png" width="100%" alt="Character error rate of Tesseract, Surya OCR, Qwen2.5-VL, DeepSeek-OCR and Netra-OCR on KHOB, legal documents and printed words"></p>
 
 *Character error rate on the three test sets.* The full tables, with word error rate, exact match and the zero-shot models, are in [docs/RESULTS.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RESULTS.md).
 
@@ -70,7 +72,7 @@ Character error rate in %, on single text-line crops. Lower is better.
 
 The two released checkpoints share one model and differ only in decoding. The `blockwise` checkpoint adds a small proposal head ([Stern et al. 2018](https://arxiv.org/abs/1811.03115)) to the frozen model:
 
-<p align="center"><img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/blockwise_decoding.png" width="90%" alt="One step of blockwise parallel decoding: the head guesses 4 tokens, the decoder's own choice matches the first two and differs at the third, so the two matches plus the decoder's token are kept"></p>
+<p align="center"><img src="https://huggingface.co/Netra-Lab/Netra-OCR/resolve/main/assets/blockwise_decoding.png" width="90%" alt="One step of blockwise parallel decoding: the head guesses 4 tokens, the decoder's own choice matches the first two and differs at the third, so the two matches plus the decoder's token are kept"></p>
 
 *One decoding step*, reading ព្រះរាជាណាចក្រកម្ពុជា (“Kingdom of Cambodia”) one character cluster per token. The head guesses 4 tokens at once. The decoder checks all of them in one parallel pass; here its own choice agrees with p1 and p2 and differs at p3 (ក against ក្រ). The two matches are kept and the decoder's ក្រ is added: 3 tokens from 2 passes, where greedy decoding needs 3. Every kept token is one greedy decoding would write, so the output is identical.
 
@@ -85,7 +87,7 @@ Beam search (`beam_width=3`) lowers KHOB CER to 0.96% at a higher cost per line.
 
 ## Architecture
 
-<p align="center"><img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/ocr-architecture.png" width="100%" alt="Netra-OCR architecture: chunked text line, SE network, patch embedding, Transformer encoder, merger, BiLSTM, Transformer decoder"></p>
+<p align="center"><img src="https://huggingface.co/Netra-Lab/Netra-OCR/resolve/main/assets/ocr-architecture.png" width="100%" alt="Netra-OCR architecture: chunked text line, SE network, patch embedding, Transformer encoder, merger, BiLSTM, Transformer decoder"></p>
 
 *A text line is chunked, each chunk is encoded in parallel, the vision tokens are merged and smoothed across the chunk seams by a BiLSTM, and the decoder writes the text one character cluster at a time.*
 
@@ -109,8 +111,8 @@ Beam search (`beam_width=3`) lowers KHOB CER to 0.96% at a higher cost per line.
 
 | Dataset | Lines | Source | Augmentation |
 |---|---|---|---|
-| [khmer-document-synthetic-low-res](https://huggingface.co/datasets/Darayut/khmer-document-synthetic-low-res) | 100,000 | Pillow + a Khmer corpus, 11 fonts | Erosion, noise, thinning and thickening, perspective distortion |
-| [khmer-scene-text-synthetic-contrast](https://huggingface.co/datasets/Darayut/khmer-scene-text-synthetic-contrast) | 102,500 | SynthTIGER + Stanford Background | Rotation, blur, noise, real backgrounds |
+| [khmer-document-synthetic-low-res](https://huggingface.co/datasets/Netra-Lab/khmer-document-synthetic-low-res) | 100,000 | Pillow + a Khmer corpus, 11 fonts | Erosion, noise, thinning and thickening, perspective distortion |
+| [khmer-scene-text-synthetic-contrast](https://huggingface.co/datasets/Netra-Lab/khmer-scene-text-synthetic-contrast) | 102,500 | SynthTIGER + Stanford Background | Rotation, blur, noise, real backgrounds |
 | [KhmerSynthetic1M](https://huggingface.co/datasets/SoyVitou/KhmerSynthetic1M) | 1,000,000 | SoyVitou | Applied by the source authors |
 | [khmer-hanuman-100k](https://huggingface.co/datasets/seanghay/khmer-hanuman-100k) | 100,000 | seanghay | Applied by the source authors |
 
@@ -122,7 +124,7 @@ Beam search (`beam_width=3`) lowers KHOB CER to 0.96% at a higher cost per line.
 | Legal Documents | Real, not public | 220 | Phone photos of birth certificates, diplomas and ID cards: degradation, lighting, distortion |
 | Printed Words | Synthetic | 500 | Short isolated words in 10 fonts |
 
-<p align="center"><img src="https://huggingface.co/Darayut/khmer-text-recognition/resolve/main/assets/dataset-overview.png" width="100%" alt="Example text lines from each training and test set"></p>
+<p align="center"><img src="https://huggingface.co/Netra-Lab/Netra-OCR/resolve/main/assets/dataset-overview.png" width="100%" alt="Example text lines from each training and test set"></p>
 
 ## Usage
 
@@ -174,7 +176,7 @@ Upload a scan, a phone photo or a PDF, correct the result block by block next to
 | `khmerocr_epoch*.pth` | Earlier training checkpoints of the character-level model. |
 | `assets/` | The figures on this card. |
 
-The cluster model's vocabulary (`char2idx_cluster.json`) ships inside the `netra-ocr` package.
+The cluster model's vocabulary (`char2idx_cluster.json`) is in [Netra-Lab/Netra-OCR](https://huggingface.co/Netra-Lab/Netra-OCR/tree/main/pytorch) `pytorch/` and in the GitHub repo's `training/netra_ocr_train/`.
 
 ## Limitations
 
