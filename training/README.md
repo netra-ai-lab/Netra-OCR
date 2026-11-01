@@ -189,17 +189,39 @@ What it does:
 
 ### What you'll see
 
-A real run: 2,000 lines of printed Khmer words, 3 epochs, on an RTX 3060.
+A real run: 2,000 lines of printed Khmer words, 3 epochs, on an RTX 3060. The snapshots below are copied from its terminal.
+
+**While an epoch trains**, the log so far stays on screen and a progress bar at the bottom updates in place: the lines done, the time spent and left in this epoch, the speed, and the running loss and learning rate.
 
 ```
 INFO - Run folder: training/runs/my-model
 INFO - Starting from the weights of published (fresh optimizer, epoch 0)
 INFO - Loading data (Hugging Face datasets download on the first use)...
 INFO - my_lines: 2,000 lines (folder: images/ + labels/)
-WARNING - Characters the vocabulary can't encode (learned as <unk>, read back as a space): 'ឫ'×17, '‌'×4, 'ឪ'×1
+WARNING - Characters the vocabulary can't encode (learned as <unk>, read back as a space): 'ឫ'×17, '\u200c'×4, 'ឪ'×1
 INFO - Held out 100 of the 2,000 lines for validation
 INFO - Training on 1,900 lines, validating on 100
 INFO - 3 epochs of 1,900 lines (60 batches of 32), on the GPU (NVIDIA GeForce RTX 3060)
+INFO - Before training: val CER 2.01%, WER 13.00%, exact 87.00%
+epoch 1/3:  51%|██████████          | 960/1900 [00:23<00:03, 286.68line/s, loss=0.7441, lr=1.5e-05]
+```
+
+**After each epoch**, the epoch's bar is replaced by a `validating` bar over the held-out lines (here after epoch 2):
+
+```
+INFO - epoch 1/3: loss 0.4828 · val CER 1.56% WER 10.00% exact 90.00% (best) · 32 s · about 1.1 min left
+validating:  48%|██████████████████████                        | 48/100 [00:00<00:00, 133.85line/s]
+```
+
+Then that bar is replaced by a summary line for the epoch:
+- the training loss;
+- the validation CER, WER and exact match;
+- `(best)` when it's the best epoch so far, else the best CER so far;
+- how long the epoch took, and about how long the whole run has left.
+
+**When it finishes:**
+
+```
 INFO - Before training: val CER 2.01%, WER 13.00%, exact 87.00%
 INFO - epoch 1/3: loss 0.4828 · val CER 1.56% WER 10.00% exact 90.00% (best) · 32 s · about 1.1 min left
 INFO - epoch 2/3: loss 0.1787 · val CER 1.10% WER 6.00% exact 94.00% (best) · 11 s · about 22 s left
@@ -212,19 +234,10 @@ Then export it for the app:
   bash training/export.sh training/runs/my-model/best.pth
 ```
 
-While an epoch runs, a progress bar shows the lines done, the speed, the time left in the epoch, and the running loss and learning rate:
-
-```
-epoch 2/3:  51%|██████████          | 960/1900 [00:01<00:01, 569.95line/s, loss=0.1798, lr=2.6e-05]
-```
-
-Validation has a bar of its own (`validating`). After each epoch, a summary line gives:
-- the training loss;
-- the validation CER, WER and exact match;
-- `(best)` when it's the best epoch so far, else the best CER so far;
-- how long the epoch took, and about how long the whole run has left.
-
-The first epoch is slower: the GPU tunes its kernels and the images are read from disk for the first time.
+What to look for:
+- the loss falls, quickly in the first epoch and slowly after;
+- the validation CER falls below the `Before training` score. If it rises instead, the model is forgetting more than it learns: use more data, or fewer epochs;
+- the first epoch is slower: the GPU tunes its kernels and the images are read from disk for the first time.
 
 Without a terminal (`nohup`, a pipe, CI), the bars are off, and a line every 50 steps (`--log-every`) shows progress instead:
 
@@ -232,6 +245,8 @@ Without a terminal (`nohup`, a pipe, CI), the bars are off, and a line every 50 
 INFO - epoch 1/1 step 50/60 loss=0.2877 lr=2.50e-05
 INFO - epoch 1/1 step 60/60 loss=0.2499 lr=3.00e-05
 ```
+
+To watch a run in the background, follow its log: `tail -f training/runs/my-model/train.log`.
 
 ### The run folder
 
@@ -363,7 +378,8 @@ bash training/export.sh training/runs/my-model/best.pth
 This writes `training/runs/my-model/bundles/recognition/`: ONNX graphs, `netra-model.json` and the vocabulary, about 80 MB. It then checks that every line of the `khob` test set reads the same as with the PyTorch checkpoint:
 
 ```
-checking on cpu: 100%|██████████████████████████████████| 325/325 [...]
+Model folder written to training/runs/my-model/bundles/recognition: {"decoder_step.onnx": "26.3 MB", "encoder.onnx": "54.4 MB", ...}
+checking on cpu: 100%|██████████████████████████████████████████| 21/21 [00:17<00:00,  1.40batch/s]
 [Recognizer(netra-ocr-recognition-finetuned 1.0.0, device=cpu, variant=fp32)] identical to PyTorch on 325/325 lines of khob
 Model folder: training/runs/my-model/bundles/recognition
 Run the app with it:   NETRA_BUNDLES=training/runs/my-model/bundles netra_ocr serve
