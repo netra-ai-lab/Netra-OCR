@@ -188,3 +188,5 @@ CHART_STYLE_GUIDE.md
 result.md
 
 brand-guideline/
+# scripts/reconstruct_eval.py output
+reconstruct_out/

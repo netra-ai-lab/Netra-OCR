@@ -23,7 +23,7 @@ export function renderApi(root, info) {
     ["GET", "/v1/jobs/{id}", "Status and page progress."],
     ["GET", "/v1/jobs/{id}/document", "The structured document: pages + blocks."],
     ["PUT", "/v1/jobs/{id}/document", "Save edits (send If-Match: revision)."],
-    ["GET", "/v1/jobs/{id}/export?format=docx", "docx · html · md · json · txt"],
+    ["GET", "/v1/jobs/{id}/export?format=docx", "docx · html · md · json · txt (docx: &layout=original | reflow)"],
     ["GET", "/v1/jobs/{id}/assets/{asset}", "Page renders and figure crops."],
     ["DELETE", "/v1/jobs/{id}", "Delete the job and its files."],
     ["GET", "/v1/info", "Device, limits, available detectors/decoders."],

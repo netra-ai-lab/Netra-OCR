@@ -113,3 +113,26 @@ def test_only_installed_detectors_are_offered(client, monkeypatch):
     r = client.post("/v1/ocr", files={"file": ("a.png", png_bytes(), "image/png")},
                     data={"detector": "tesseract"})
     assert r.status_code == 422 and "isn't installed" in r.json()["detail"]
+
+
+def test_original_layout_export_measures_once_and_survives_edits(client):
+    r = client.post("/v1/ocr", files={"file": ("scan.png", png_bytes(), "image/png")})
+    job_id = r.json()["job"]["id"]
+    before = client.get(f"/v1/jobs/{job_id}/document").json()
+    assert "size_pt" not in before["pages"][0]             # measured on demand, not during OCR
+
+    docx = client.get(f"/v1/jobs/{job_id}/export", params={"format": "docx"})
+    assert docx.content[:2] == b"PK"
+    measured = client.get(f"/v1/jobs/{job_id}/document").json()
+    assert measured["pages"][0]["size_pt"] and measured["revision"] == before["revision"]
+
+    # The editor saves the copy it loaded before the measurement: kept anyway.
+    before["blocks"][1]["text"] = "Edited body"
+    assert client.put(f"/v1/jobs/{job_id}/document", json=before).status_code == 200
+    after = client.get(f"/v1/jobs/{job_id}/document").json()
+    assert after["pages"][0]["size_pt"] == measured["pages"][0]["size_pt"]
+
+    reflow = client.get(f"/v1/jobs/{job_id}/export", params={"format": "docx", "layout": "reflow"})
+    assert reflow.content[:2] == b"PK" and reflow.content != docx.content
+    assert client.get(f"/v1/jobs/{job_id}/export",
+                      params={"format": "docx", "layout": "sideways"}).status_code == 422

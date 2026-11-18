@@ -241,7 +241,7 @@ text = pipeline.process_image(image_path="document.png", output_path="document.d
 ```bash
 netra_ocr --image scan.jpg --output result.txt                    # YOLO detector, plain text
 netra_ocr --image scan.jpg --output result.docx                   # Word, logos embedded as images
-netra_ocr --image letter.pdf --output letter.docx --layout        # headings, tables and figures kept
+netra_ocr --image letter.pdf --output letter.docx --layout        # the page rebuilt as it looked: fonts, sizes, colours, seals
 netra_ocr --image scan.jpg --output result.txt --detector legacy  # needs the legacy extra
 ```
 

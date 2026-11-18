@@ -221,11 +221,16 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return jobs().reset_document(job_id).to_dict()
 
     @app.get("/v1/jobs/{job_id}/export", summary="Download the document",
-             description="Exports the edited document. `md` becomes a .zip when the document has figures.")
-    def export_document(job_id: str, format: Literal["docx", "html", "md", "json", "txt"] = "docx"):
+             description="Exports the edited document. `md` becomes a .zip when the document has figures. "
+                         "Word output rebuilds the original page (`layout=original`: fonts, sizes, colours, "
+                         "placement, seals) or writes a clean re-flowed document (`layout=reflow`).")
+    def export_document(job_id: str, format: Literal["docx", "html", "md", "json", "txt"] = "docx",
+                        layout: Literal["original", "reflow"] = "original"):
         doc = document_or_error(job_id)
+        if format == "docx" and layout == "original":
+            doc = jobs().enrich(job_id)
         job = jobs().get(job_id)
-        data, filename, mime = export(doc, format, basename=job.filename)
+        data, filename, mime = export(doc, format, basename=job.filename, layout=layout)
         from urllib.parse import quote
         return Response(data, media_type=mime, headers={
             "Content-Disposition": f"attachment; filename=\"document{os.path.splitext(filename)[1]}\"; "

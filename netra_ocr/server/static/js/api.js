@@ -54,5 +54,6 @@ export const api = {
   }),
   resetDocument: (id) => request("POST", `/v1/jobs/${id}/document/reset`),
   assetUrl: (id, asset) => withKey(`/v1/jobs/${id}/assets/${asset}`),
-  exportUrl: (id, format) => withKey(`/v1/jobs/${id}/export?format=${format}`),
+  exportUrl: (id, format, layout) =>
+    withKey(`/v1/jobs/${id}/export?format=${format}${layout ? `&layout=${layout}` : ""}`),
 };

@@ -22,7 +22,9 @@ Output formats (auto-detected from extension)
 ---------------------------------------------
   .txt  .md    — plain UTF-8 text (text lines only)
   .json         — structured metadata (image size, per-line text + bbox)
-  .docx         — Word document: text lines as paragraphs, logos as inline images
+  .docx         — Word document: text lines as paragraphs, logos as inline images.
+                  With --layout (or PDF input) the page is rebuilt as it looked:
+                  fonts, sizes, colours, placement, seals (--docx-layout original).
 """
 
 import os
@@ -36,7 +38,7 @@ from PIL import Image
 from .detectors import get_detector
 from .document import AssetStore, Document
 from .imaging import bgr_to_rgb
-from .io import count_pages, iter_pages, sniff_kind
+from .io import PDF_DPI, count_pages, iter_pages, sniff_kind
 from .recognition import recognize_batch
 from .exporters.lines import save_output, SUPPORTED_FORMATS
 from . import structure
@@ -45,12 +47,17 @@ from . import structure
 class KhmerOCRPipeline:
     def __init__(self, detector: str = "yolo", conf: float | None = None,
                  pad: int | None = None, decoder: str = "ar", layout: bool = False,
-                 layout_conf: float = 0.2):
+                 layout_conf: float = 0.2, reconstruct: bool = False):
         """
         layout: run DocLayout-YOLO page layout analysis (titles, paragraphs,
             tables, figures, headers/footers, reading order) on top of line
             detection. Only affects
             ``process_document`` and, when True, ``process_image``.
+        reconstruct: also measure how each page looks (fonts, sizes,
+            colours, paper size, seals and signatures; see
+            ``netra_ocr.reconstruct``) so the original-layout Word export can
+            rebuild it. Done here, on the full-quality page, rather than later
+            from the stored JPEG render.
         """
         print(f"Initializing detector: {detector}")
         kwargs = {}
@@ -61,6 +68,7 @@ class KhmerOCRPipeline:
         self.detector = get_detector(detector, **kwargs)
         self.decoder = decoder
         self.layout = layout
+        self.reconstruct = reconstruct
         self.layout_analyzer = None
         if layout:
             from .layout.doclayout import DocLayoutYoloAnalyzer
@@ -69,13 +77,23 @@ class KhmerOCRPipeline:
     # ── structured documents (layout-aware, multi-page) ────────────────
     def analyze_page(self, img_bgr, page_index: int = 0, assets: AssetStore | None = None,
                      batch_size: int = 16,
-                     include_headers_footers: bool = True) -> tuple[dict, list]:
+                     include_headers_footers: bool = True,
+                     dpi: float | None = None) -> tuple[dict, list]:
         """Detect, recognize and structure one page (BGR array).
 
         Returns ``(page, blocks)`` in the ``netra_ocr.document`` schema; crops
-        and the page render are added to ``assets``.
+        and the page render are added to ``assets``. ``dpi`` is the page's
+        known resolution (PDF renders), used by ``reconstruct``.
         """
         assets = assets if assets is not None else AssetStore()
+        page, blocks = self._analyze_page(img_bgr, page_index, assets, batch_size,
+                                          include_headers_footers)
+        if self.reconstruct:
+            from .reconstruct import enrich_page
+            enrich_page(page, blocks, img_bgr, assets, dpi=dpi)
+        return page, blocks
+
+    def _analyze_page(self, img_bgr, page_index, assets, batch_size, include_headers_footers):
         h, w = img_bgr.shape[:2]
         page_asset = assets.put(f"page-{page_index}",
                                 Image.fromarray(bgr_to_rgb(img_bgr)))
@@ -113,9 +131,10 @@ class KhmerOCRPipeline:
         if max_pages is not None:
             total = min(total, max_pages)
         doc = Document()
-        for i, img_bgr in enumerate(iter_pages(data, max_pages=total)):
+        dpi = PDF_DPI if sniff_kind(data[:16]) == "pdf" else None
+        for i, img_bgr in enumerate(iter_pages(data, max_pages=total, dpi=PDF_DPI)):
             page, blocks = self.analyze_page(img_bgr, i, doc.assets, batch_size,
-                                             include_headers_footers)
+                                             include_headers_footers, dpi=dpi)
             doc.pages.append(page)
             doc.blocks.extend(blocks)
             if progress:
@@ -243,6 +262,7 @@ def main():
             "  python ocr_engine.py --image scan.jpg --output result.txt\n"
             "  python ocr_engine.py --image scan.jpg --output result.docx --detector yolo\n"
             "  python ocr_engine.py --image scan.jpg --output result.json --detector yolo --conf 0.4\n"
+            "  netra_ocr --image letter.jpg --layout --output letter.docx   # rebuild the original page\n"
         ),
     )
     parser.add_argument("--image",      required=True,
@@ -259,19 +279,29 @@ def main():
                         help="Pixels to pad each bbox on all sides (default 4). Only applies to --detector yolo.")
     parser.add_argument("--decoder",    default="ar", choices=["ar", "blockwise"],
                         help="Recognition decoder: ar (default) or blockwise (Stern et al. 2018 -- same output, usually faster).")
+    parser.add_argument("--docx-layout", default="original", choices=["original", "reflow"],
+                        help="Word output with --layout or PDF input: 'original' (default) rebuilds the "
+                             "page as it looked -- fonts, sizes, colours, placement, seals and signatures; "
+                             "'reflow' writes a clean, re-flowed document.")
+    parser.add_argument("--fonts",      default="embed", choices=["embed", "system"],
+                        help="Original-layout Word output: embed the fonts used (default), or name the "
+                             "usual installed Khmer fonts (Khmer OS ...) instead.")
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--debug",      action="store_true")
     args = parser.parse_args()
 
     try:
-        pipeline = KhmerOCRPipeline(detector=args.detector, conf=args.conf, pad=args.pad,
-                                    decoder=args.decoder, layout=args.layout)
         with open(args.image, "rb") as fh:
             is_pdf = sniff_kind(fh.read(16)) == "pdf"
-        if args.layout or is_pdf:
+        structured = args.layout or is_pdf
+        rebuild = (structured and args.docx_layout == "original"
+                   and os.path.splitext(args.output)[1].lower() == ".docx")
+        pipeline = KhmerOCRPipeline(detector=args.detector, conf=args.conf, pad=args.pad,
+                                    decoder=args.decoder, layout=args.layout, reconstruct=rebuild)
+        if structured:
             from .exporters import save_document
             doc = pipeline.process_document(args.image, batch_size=args.batch_size)
-            path = save_document(doc, args.output)
+            path = save_document(doc, args.output, layout=args.docx_layout, fonts=args.fonts)
             print(f"  Saved {os.path.splitext(path)[1]} output -> {path}")
             return
         pipeline.process_image(

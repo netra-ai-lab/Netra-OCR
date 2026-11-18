@@ -4,7 +4,8 @@ import { copyText, h, icon, iconButton, isKhmer, toast } from "./util.js";
 
 const TEXT_TYPES = new Set(["heading", "paragraph", "caption", "page_header", "page_footer"]);
 const TYPE_CHOICES = ["heading-1", "heading-2", "heading-3", "paragraph", "caption", "page_header", "page_footer"];
-const FORMATS = ["docx", "html", "md", "json", "txt"];
+// "docx" rebuilds the original page; "docx-reflow" is the clean, re-flowed Word document.
+const FORMATS = ["docx", "docx-reflow", "html", "md", "json", "txt"];
 const HISTORY_LIMIT = 200;
 const SAVE_DELAY = 700;
 
@@ -228,7 +229,7 @@ function renderEditor(root, job, initialDoc) {
   const redoBtn = iconButton("redo", t("ed.redo"), () => redo());
   const menuList = h("div", { class: "menu-list", role: "menu", hidden: true },
     FORMATS.map((f) => h("button", { type: "button", role: "menuitem", onclick: () => { closeMenu(); download(f); } },
-      h("span", {}, t(`fmt.${f}`)), h("span", { class: "meta" }, `.${f === "md" ? "md" : f}`))));
+      h("span", {}, t(`fmt.${f}`)), h("span", { class: "meta" }, `.${f.split("-")[0]}`))));
   const moreBtn = h("button", { class: "pill pill-sm", type: "button", "aria-haspopup": "menu", "aria-expanded": "false",
     onclick: (e) => { e.stopPropagation(); menuList.hidden ? openMenu() : closeMenu(); } }, t("ed.more"), icon("chevDown"));
   moreBtn.querySelector("svg").style.width = "14px";
@@ -770,7 +771,8 @@ function renderEditor(root, job, initialDoc) {
 
   async function download(format) {
     await flushSave();
-    const a = h("a", { href: api.exportUrl(job.id, format), download: "" });
+    const [fmt, layout] = format.split("-");
+    const a = h("a", { href: api.exportUrl(job.id, fmt, layout), download: "" });
     document.body.append(a);
     a.click();
     a.remove();
