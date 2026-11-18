@@ -32,7 +32,8 @@ original page can be rebuilt (all informational; editing never needs them):
   ``body_size``, and ``overlays`` -- marks the models don't read (seals,
   signatures, rules) as ``[{"image", "bbox", "kind"}]``.
 * text and table blocks: ``style`` -- ``{"font", "size", "bold", "color"}``;
-  tables also ``ruled`` (grid lines on the scan).
+  tables also ``ruled`` (grid lines on the scan), ``grid`` (``{"rows",
+  "cols"}``: the drawn grid's edges in page pixels) and ``header_style``.
 * lines: ``ink`` (tight ink box) and ``scale`` (character width, %).
 """
 
@@ -206,6 +207,21 @@ def _line(l: dict, where: str) -> dict:
     return out
 
 
+def _grid(v, where: str) -> dict:
+    """A ruled table's row and column edges (page pixels, increasing)."""
+    if not isinstance(v, dict):
+        raise DocumentValidationError(f"{where}: grid must be an object")
+    out = {}
+    for key in ("rows", "cols"):
+        edges = v.get(key)
+        if (not isinstance(edges, list) or not 2 <= len(edges) <= 1000
+                or not all(isinstance(e, (int, float)) and not isinstance(e, bool) for e in edges)
+                or any(b <= a for a, b in zip(edges, edges[1:]))):
+            raise DocumentValidationError(f"{where}: grid {key} must be increasing numbers")
+        out[key] = [int(e) for e in edges]
+    return out
+
+
 def _style(v, where: str) -> Optional[dict]:
     if v is None:
         return None
@@ -317,6 +333,10 @@ def validate(data: dict, assets: AssetStore):
                 out["style"] = style
         if btype == "table" and isinstance(b.get("ruled"), bool):
             out["ruled"] = b["ruled"]
+        if btype == "table" and b.get("grid") is not None:
+            out["grid"] = _grid(b["grid"], where)
+        if btype == "table" and b.get("header_style") is not None:
+            out["header_style"] = _style(b["header_style"], where)
 
         if btype in TEXT_TYPES:
             out["text"] = _text(b.get("text", ""), where)

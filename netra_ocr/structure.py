@@ -25,7 +25,7 @@ from .document import AssetStore
 from .imaging import bgr_to_rgb, otsu_threshold, to_gray
 from .layout.base import IMAGE_LABELS, TABLE_LABELS, TEXT_LABELS, Box, LayoutRegion, area, intersection
 from .layout.order import assign_lines, group_orphan_lines, union_box, xy_cut_order
-from .layout.table import build_grid
+from .layout.table import build_grid, cells_from_grid, ruled_grid
 
 CAPTION_LABELS = {"figure_caption", "table_caption", "table_footnote", "formula_caption"}
 
@@ -54,6 +54,22 @@ class Unit:
 
 def _is_khmer(ch: str) -> bool:
     return "ក" <= ch <= "៿" or "᧠" <= ch <= "᧿"
+
+
+def is_barcode(gray: np.ndarray, box: Box) -> bool:
+    """A detected "line" that is a barcode: many dark bars spanning most of
+    the box's height side by side. Text never does that (its stems cover
+    only the core band), so the recognizer's reading of it is noise."""
+    x1, y1, x2, y2 = (max(0, int(v)) for v in box)
+    crop = gray[y1:y2, x1:x2]
+    if crop.size == 0 or crop.shape[1] < 3 * crop.shape[0] // 2:
+        return False
+    ink = crop <= otsu_threshold(crop)
+    bars = ink.mean(axis=0) > 0.55
+    runs = int((np.diff(bars.astype(np.int8)) == 1).sum())
+    # Large bold digits (an ID card's number) give a dozen stems; a barcode
+    # has a few dozen bars.
+    return runs >= 20 and 0.2 <= bars.mean() <= 0.8
 
 
 def has_content(text: str) -> bool:
@@ -489,6 +505,10 @@ def build_blocks(page_index: int, img_bgr: np.ndarray, units: Sequence[Unit],
     content = text_extent(line_boxes, w)
     whole_iter = iter(whole_texts)
     blocks: List[dict] = []
+    gray = to_gray(img_bgr)
+    # Barcodes are detected as text lines; their "text" is noise. They stay
+    # on the page image (and as pictures in the rebuilt page).
+    barcodes = {i for i, b in enumerate(line_boxes) if is_barcode(gray, b)}
 
     # Heading level from relative text size: the page's tallest title lines
     # are H1, noticeably smaller titles are H2.
@@ -525,7 +545,7 @@ def build_blocks(page_index: int, img_bgr: np.ndarray, units: Sequence[Unit],
         if u.recognize_whole:
             idx, boxes, texts = [], [u.bbox], [next(whole_iter)]
         else:
-            idx = [i for i in u.lines if has_content(line_texts[i])]
+            idx = [i for i in u.lines if has_content(line_texts[i]) and i not in barcodes]
             boxes = [line_boxes[i] for i in idx]
             texts = [line_texts[i] for i in idx]
         if not has_content(" ".join(texts)):
@@ -533,9 +553,18 @@ def build_blocks(page_index: int, img_bgr: np.ndarray, units: Sequence[Unit],
 
         if u.label in TABLE_LABELS:
             asset = assets.put(f"p{page_index}-table{n}", _crop(img_bgr, u.bbox))
-            grid = build_grid(list(zip(boxes, texts)))
-            rows = grid if grid is not None else [[join_lines(boxes, texts, keep_breaks=True)]]
-            add({**base, "type": "table", "rows": rows, "image": asset,
+            lines = list(zip(boxes, texts))
+            extra = {}
+            # A ruled table: its drawn grid gives the rows and columns exactly.
+            ruled = ruled_grid(gray, u.bbox, lines)
+            if ruled is not None and len(ruled[0]) > 2 and len(ruled[1]) > 2:
+                ys, xs = ruled
+                rows = cells_from_grid(lines, ys, xs)
+                extra = {"grid": {"rows": [int(y) for y in ys], "cols": [int(x) for x in xs]}, "ruled": True}
+            else:
+                grid = build_grid(lines)
+                rows = grid if grid is not None else [[join_lines(boxes, texts, keep_breaks=True)]]
+            add({**base, "type": "table", "rows": rows, "image": asset, **extra,
                  "lines": [{"text": t, "bbox": [int(v) for v in b]} for b, t in zip(boxes, texts)]})
         elif u.label == "title":
             level = 1 if unit_line_height(u) >= 0.85 * max_title_h else 2
@@ -564,7 +593,9 @@ def plain_blocks(page_index: int, img_bgr: np.ndarray, line_boxes: Sequence[Box]
 
     Same top-to-bottom order the classic pipeline has always used.
     """
-    items = [("text", b, t) for b, t in zip(line_boxes, line_texts) if has_content(t)]
+    gray = to_gray(img_bgr)
+    items = [("text", b, t) for b, t in zip(line_boxes, line_texts)
+             if has_content(t) and not is_barcode(gray, b)]
     items += [("logo", b, None) for b in logo_boxes]
     items.sort(key=lambda it: (it[1][1], it[1][0]))
     blocks = []

@@ -47,6 +47,15 @@ def _round_size(pt: float) -> float:
 
 
 BODY_TYPES = {"paragraph", "caption", "page_header", "page_footer", "table"}
+
+
+def _part(block: dict, line: dict) -> str:
+    """"header" for lines in a ruled table's first row, else "body"."""
+    grid = block.get("grid")
+    if block["type"] != "table" or not grid or len(grid["rows"]) < 3:
+        return "body"
+    box = line.get("bbox")
+    return "header" if box and (box[1] + box[3]) / 2 < grid["rows"][1] else "body"
 MAX_FIT_LINES = 5
 
 
@@ -120,7 +129,7 @@ def enrich_page(page: dict, blocks: List[dict], img_bgr: np.ndarray, assets,
         for line in b.get("lines") or []:
             if not line.get("bbox"):
                 continue
-            ink = S.measure_line(rgb, gray, line["bbox"], thr)
+            ink = S.measure_line(rgb, gray, line["bbox"], thr, latin=S.is_latin(line.get("text", "")))
             if ink is None:
                 continue
             line["ink"] = [ink.x1, ink.top, ink.x2, ink.bottom]
@@ -166,12 +175,13 @@ def enrich_page(page: dict, blocks: List[dict], img_bgr: np.ndarray, assets,
     page["body_font"] = body
     biases = blur((body,))
 
-    # 2. One font, weight, size and colour per block.
+    # 2. One font, weight, size and colour per block -- and per header row
+    # of a ruled table, which is often set in another face (Muol, bold).
     by_block = defaultdict(list)
     for item in measured:
-        by_block[id(item[0])].append(item)
+        by_block[(id(item[0]), _part(item[0], item[1]))].append(item)
     colours, styled = [], []
-    for items in by_block.values():
+    for (_, part), items in by_block.items():
         b = items[0][0]
         candidates = [(body, False), (body, True)]
         # Muol is a Khmer face; its Latin letters are a display serif.
@@ -181,29 +191,28 @@ def enrich_page(page: dict, blocks: List[dict], img_bgr: np.ndarray, assets,
                     b["type"]) or (body, False)
         size = _round_size(_block_size_px(items, key) * 72 / page_dpi)
         colours.append(S.text_colour([ink.colour for *_, ink, _ in items]))
-        styled.append((b, items, {"font": key[0], "size": size, "bold": bool(key[1])}))
+        styled.append((b, items, {"font": key[0], "size": size, "bold": bool(key[1])}, part))
 
     # Body text is one size on a real page; small measured differences are
     # noise. Snap body blocks near the page's body size onto it.
-    weights = [(st["size"], len(items)) for b, items, st in styled if b["type"] in BODY_TYPES]
+    weights = [(st["size"], len(items)) for b, items, st, _ in styled if b["type"] in BODY_TYPES]
     if weights:
         sizes = np.repeat([s for s, _ in weights], [n for _, n in weights])
         body_size = float(np.median(sizes))
-        for b, _, st in styled:
+        for b, _, st, _ in styled:
             if b["type"] in BODY_TYPES and abs(st["size"] / body_size - 1) <= 0.15:
                 st["size"] = _round_size(body_size)
         page["body_size"] = _round_size(body_size)
 
-    for b, items, st in styled:
+    for b, items, st, _ in styled:
         for _, line, ink, _ in items:
             text = line.get("text", "")
             natural = F.text_width_pt(text, st["font"], st["bold"], st["size"]) if text.strip() else 0
             if natural > 0:
                 line["scale"] = int(round(100 * (ink.width * 72 / page_dpi) / natural))
-    styled = [(b, st) for b, _, st in styled]
-    for (b, style), colour in zip(styled, S.snap_colours(colours)):
+    for (b, _, style, part), colour in zip(styled, S.snap_colours(colours)):
         style["color"] = colour
-        b["style"] = style
+        b["header_style" if part == "header" else "style"] = style
 
     # 3. Graphics: marks the models don't read, and transparent logos.
     if not graphics_layer:
@@ -218,12 +227,14 @@ def enrich_page(page: dict, blocks: List[dict], img_bgr: np.ndarray, assets,
                 text_lines.append((line["bbox"], None))
     figures = [(i, b["bbox"], b.get("label") == "logo") for i, b in enumerate(blocks)
                if b["type"] in ("figure", "formula") and b.get("bbox")]
-    tables = [(i, b["bbox"]) for i, b in enumerate(blocks) if b["type"] == "table" and b.get("bbox")]
-    overlays, cutouts, ruled = graphics.extract(rgb, bg, text_lines, figures, tables)
+    # Ruled tables' grid lines are drawn by the writer as table borders.
+    grids = [b["grid"] for b in blocks if b["type"] == "table" and b.get("grid")]
+    overlays, cutouts = graphics.extract(rgb, bg, text_lines, figures, grids)
     for i, img in cutouts.items():
         assets.put(blocks[i]["image"], img)
-    for i, _ in tables:
-        blocks[i]["ruled"] = i in ruled
+    for b in blocks:
+        if b["type"] == "table":
+            b["ruled"] = bool(b.get("grid"))
     page_index = page.get("index", 0)
     page["overlays"] = []
     for k, ov in enumerate(overlays):

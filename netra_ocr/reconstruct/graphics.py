@@ -77,7 +77,7 @@ def _text_pixels(rgb: np.ndarray, marks: np.ndarray, box, colour,
     h, w = marks.shape
     x1, y1, x2, y2 = (int(v) for v in box)
     if ink is not None and ink.core > 0:
-        reach = int(round(1.3 * ink.core)) + 1
+        reach = int(round(max(1.3 * ink.core, 0.3 * (y2 - y1)))) + 1
         y1, y2 = max(y1, ink.top - reach), min(y2, ink.bottom + reach)
         x1, x2 = max(x1, ink.x1 - reach), min(x2, ink.x2 + reach)
     ys, xs = slice(max(0, y1), min(h, y2)), slice(max(0, x1), min(w, x2))
@@ -152,20 +152,20 @@ def _merge_boxes(components) -> List[Tuple[int, int, int, int]]:
 def extract(rgb: np.ndarray, bg: np.ndarray,
             text_lines: Sequence[Tuple[Sequence[int], Optional[Ink]]],
             figures: Sequence[Tuple[int, Sequence[int], bool]],
-            tables: Sequence[Tuple[int, Sequence[int]]] = ()):
+            tables: Sequence[dict] = ()):
     """Find the page's graphics.
 
     ``text_lines``: ``(bbox, ink)`` of every recognized line (ink may be
     None). ``figures``: ``(block_index, bbox, is_logo)`` of figure blocks;
     marks inside them belong to them, not to free-standing overlays.
 
-    ``tables``: ``(block_index, bbox)`` of table blocks; their grid lines
-    are drawn by the writer as table borders, not as pictures.
+    ``tables``: the ``grid`` (row and column edges) of ruled tables; their
+    lines are drawn by the writer as table borders, not as pictures. What
+    else is in a table (barcodes, a seal) stays.
 
-    Returns ``(overlays, figure_cutouts, ruled)``: free-standing marks, an
+    Returns ``(overlays, figure_cutouts)``: free-standing marks, and an
     RGBA cut-out per logo block index (photos and other figures are left
-    out: they stay opaque crops), and the set of table block indexes whose
-    scan shows ruled lines.
+    out: they stay opaque crops).
     """
     h, w = rgb.shape[:2]
     contrast = np.abs(rgb.astype(np.float32) - bg).max(axis=2)
@@ -196,15 +196,12 @@ def extract(rgb: np.ndarray, bg: np.ndarray,
             continue
         figure_cutouts[index] = _cutout(rgb, bg, contrast, residual, (x1, y1, x2, y2))
 
-    ruled = set()
-    for index, box in tables:
-        x1, y1, x2, y2 = (max(0, int(box[0])), max(0, int(box[1])),
-                          min(w, int(box[2])), min(h, int(box[3])))
-        if x2 - x1 < 2 or y2 - y1 < 2:
-            continue
-        taken[y1:y2, x1:x2] = True
-        if rules[y1:y2, x1:x2].any(axis=1).sum() >= 2:
-            ruled.add(index)
+    # Grid lines of ruled tables: Word draws them as borders.
+    for grid in tables:
+        for y in grid["rows"]:
+            residual[max(0, y - 4):y + 5, max(0, grid["cols"][0] - 4):grid["cols"][-1] + 5] = False
+        for x in grid["cols"]:
+            residual[max(0, grid["rows"][0] - 4):grid["rows"][-1] + 5, max(0, x - 4):x + 5] = False
 
     free = residual & ~taken
     r = max(2, round(w / 160))
@@ -230,4 +227,4 @@ def extract(rgb: np.ndarray, bg: np.ndarray,
         img = _cutout(rgb, bg, contrast, keep, (x1, y1, x2, y2))
         kind = _kind(rgb[y1:y2, x1:x2][free[y1:y2, x1:x2]], (x1, y1, x2, y2))
         overlays.append(Overlay((x1, y1, x2, y2), img, kind))
-    return overlays, figure_cutouts, ruled
+    return overlays, figure_cutouts

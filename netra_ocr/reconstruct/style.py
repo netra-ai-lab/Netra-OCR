@@ -42,7 +42,8 @@ class Ink:
         return (self.top + self.bottom) / 2
 
 
-def core_band(ink: np.ndarray, weight_centre: bool = True) -> Optional[Tuple[int, int, float]]:
+def core_band(ink: np.ndarray, weight_centre: bool = True,
+              latin: bool = False) -> Optional[Tuple[int, int, float]]:
     """The densest band of ``ink`` (bool HxW): ``(top, bottom, height)``.
 
     ``[top, bottom)`` are whole rows for slicing; ``height`` is the band's
@@ -66,13 +67,22 @@ def core_band(ink: np.ndarray, weight_centre: bool = True) -> Optional[Tuple[int
     else:
         prof_w = prof
     peak = int(np.argmax(prof_w))
-    level = 0.45 * prof[peak]
-    top = peak
-    while top > 0 and prof[top - 1] >= level:
-        top -= 1
-    bottom = peak
-    while bottom < h - 1 and prof[bottom + 1] >= level:
-        bottom += 1
+
+    def expand(level):
+        t = b = peak
+        while t > 0 and prof[t - 1] >= level:
+            t -= 1
+        while b < h - 1 and prof[b + 1] >= level:
+            b += 1
+        return t, b
+
+    top, bottom = expand(0.45 * prof[peak])
+    # Latin and digits have no dense band of base consonants: the densest
+    # rows can be one stroke (the foot of a "2", a hyphen). A band that thin
+    # is widened to the letters' height. (Khmer always has the band.)
+    extent = int((raw >= 0.05 * raw.max()).sum())
+    if latin and bottom + 1 - top < 0.25 * extent:
+        top, bottom = expand(0.15 * prof[peak])
 
     # Sub-pixel edges on the unsmoothed profile.
     lo, hi = max(0, top - 1), min(h, bottom + 2)
@@ -93,7 +103,7 @@ def core_band(ink: np.ndarray, weight_centre: bool = True) -> Optional[Tuple[int
 
 
 def measure(gray: np.ndarray, threshold: Optional[int] = None,
-            weight_centre: bool = True) -> Optional[Ink]:
+            weight_centre: bool = True, latin: bool = False) -> Optional[Ink]:
     """Measure ink in a grey crop (ink is dark). Coordinates are crop-relative."""
     if gray.size == 0:
         return None
@@ -101,7 +111,7 @@ def measure(gray: np.ndarray, threshold: Optional[int] = None,
     ink = gray < thr
     if ink.mean() < 0.003:
         return None
-    band = core_band(ink, weight_centre)
+    band = core_band(ink, weight_centre, latin)
     if band is None:
         return None
     top, bottom, height = band
@@ -119,8 +129,9 @@ def measure(gray: np.ndarray, threshold: Optional[int] = None,
 
 
 def measure_line(rgb: np.ndarray, gray: np.ndarray, bbox: Box,
-                 page_threshold: int) -> Optional[Ink]:
-    """Measure one detected line on the page. Returns page coordinates."""
+                 page_threshold: int, latin: bool = False) -> Optional[Ink]:
+    """Measure one detected line on the page. Returns page coordinates.
+    ``latin``: the line is mostly not Khmer (see ``core_band``)."""
     h, w = gray.shape
     x1, y1, x2, y2 = (int(v) for v in bbox)
     x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w, x2), min(h, y2)
@@ -151,12 +162,19 @@ def measure_line(rgb: np.ndarray, gray: np.ndarray, bbox: Box,
         crop = crop.copy()
         crop[foreign] = 255
 
-    ink = measure(crop, thr)
+    ink = measure(crop, thr, latin=latin)
     if ink is None:
         return None
     ink.colour = tuple(int(v) for v in colour)
     ink.x1 += x1; ink.x2 += x1; ink.top += y1; ink.bottom += y1
     return ink
+
+
+def is_latin(text: str) -> bool:
+    """Mostly not Khmer: Latin letters, digits, punctuation."""
+    letters = [ch for ch in text if not ch.isspace()]
+    khmer = sum("\u1780" <= ch <= "\u17ff" or "\u19e0" <= ch <= "\u19ff" for ch in letters)
+    return bool(letters) and khmer < 0.5 * len(letters)
 
 
 def to_hex(rgb: Tuple[int, int, int]) -> str:

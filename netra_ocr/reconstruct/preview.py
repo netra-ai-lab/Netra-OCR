@@ -62,17 +62,27 @@ def _draw_para(canvas, p: Para, left: float, right: float, top: float, k: float)
 def _draw_table(canvas, t: Table, top: float, k: float) -> float:
     draw = ImageDraw.Draw(canvas)
     y = top
-    for row in t.rows:
+    for ri, row in enumerate(t.cells):
+        h = t.row_heights[ri]
+        style = t.header_style if (ri == 0 and t.header_style) else t.style
         x = t.left
         for ci, cell in enumerate(row):
-            w = t.col_widths[ci] if ci < len(t.col_widths) else t.col_widths[-1]
+            w = t.col_widths[ci]
             if t.borders:
-                draw.rectangle([x * k, y * k, (x + w) * k, (y + t.pitch) * k], outline=(0, 0, 0))
-            for li, line in enumerate(cell.split("\n")[:1]):
-                if line.strip():
-                    _draw_row(canvas, line, t.style, 100, (x + 2) * k, (y + t.pitch / 2) * k, k, "left")
+                draw.rectangle([x * k, y * k, (x + w) * k, (y + h) * k], outline=(128, 128, 128))
+            n = max(1, len(cell.lines))
+            for li, line in enumerate(cell.lines):
+                if not line.strip():
+                    continue
+                width = F.text_width_pt(line, style["font"], style["bold"], style["size"]) * cell.scale / 100
+                lo, hi = x + t.padding, x + w - t.padding
+                lx = (lo + hi - width) / 2 if cell.align == "center" else (hi - width if cell.align == "right" else lo)
+                step = min(h / n, style["size"] * 1.6)
+                mid = {"top": y + step * n / 2, "bottom": y + h - step * n / 2}.get(cell.valign, y + h / 2)
+                cy = mid + (li - (n - 1) / 2) * step
+                _draw_row(canvas, line, style, cell.scale, lx * k, cy * k, k, "left")
             x += w
-        y += t.pitch
+        y += h
     return y - top
 
 

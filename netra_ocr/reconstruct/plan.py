@@ -23,7 +23,7 @@ from . import fonts as F
 DEFAULT_STYLE = {"font": F.DEFAULT_FAMILY, "size": 11.0, "bold": False, "color": "000000"}
 SCALE_RANGE = (70, 130)        # Word character scale limits we allow, %
 FIT_MARGIN = 0.97              # keep each line a little narrower than its room
-                               # (Latin text is set in Arial/Times, whose widths differ a little)
+                               # (Latin text is set in Arial, whose widths differ a little)
 
 
 @dataclass
@@ -54,17 +54,27 @@ class Para:
 
 
 @dataclass
+class Cell:
+    lines: List[str]
+    align: str = "left"        # left | center | right
+    scale: int = 100           # character scale for every line, %
+    valign: str = "center"     # top | center | bottom
+
+
+@dataclass
 class Table:
     block: dict
-    rows: List[List[str]]
+    cells: List[List[Cell]]
     col_widths: List[float]
+    row_heights: List[float]   # exact, pt: a table never grows taller than on the scan
     style: dict
-    pitch: float
+    header_style: Optional[dict]
     top: float
     bottom: float
     left: float                # pt, page x of the table's left edge
     borders: bool = False
     space_before: float = 0.0
+    padding: float = 2.0       # cell padding left and right, pt
 
 
 @dataclass
@@ -207,30 +217,86 @@ def _para(block: dict, to_pt, page_w_pt: float) -> Optional[Para]:
                 keep_lines=keep, text=text)
 
 
+def _cell_align(line_box, cell_x1: float, cell_x2: float) -> str:
+    """Where a line sits in its cell: centred, right or left aligned."""
+    w = max(1.0, cell_x2 - cell_x1)
+    lx1, lx2 = line_box[0], line_box[2]
+    if abs((lx1 + lx2) / 2 - (cell_x1 + cell_x2) / 2) < 0.12 * w:
+        return "center"
+    if cell_x2 - lx2 < 0.1 * w and lx1 - cell_x1 > 0.2 * w:
+        return "right"
+    return "left"
+
+
 def _table(block: dict, to_pt) -> Optional[Table]:
     from ..layout.table import _columns
     st = _style(block)
+    header = dict(st, **block["header_style"]) if block.get("header_style") else None
     lines = [l for l in block.get("lines") or [] if l.get("bbox")]
     rows = block.get("rows") or [[""]]
-    ncols = max(len(r) for r in rows)
-    if block.get("bbox"):
-        x1, y1, x2, y2 = (to_pt(v) for v in block["bbox"])
-    elif lines:
-        x1 = to_pt(min(l["bbox"][0] for l in lines)); x2 = to_pt(max(l["bbox"][2] for l in lines))
-        y1 = to_pt(min(l["bbox"][1] for l in lines)); y2 = to_pt(max(l["bbox"][3] for l in lines))
+    nrows, ncols = len(rows), max(len(r) for r in rows)
+
+    grid = block.get("grid")
+    if grid and len(grid["rows"]) - 1 == nrows and len(grid["cols"]) - 1 == ncols:
+        ys, xs = list(grid["rows"]), list(grid["cols"])          # the drawn grid, exactly
     else:
-        return None
-    widths = [(x2 - x1) / ncols] * ncols
-    if lines and ncols > 1:
-        heights = sorted(l["bbox"][3] - l["bbox"][1] for l in lines)
-        gap = max(2, heights[len(heights) // 2] // 3)
-        cols = _columns([(tuple(l["bbox"]), l.get("text", "")) for l in lines], gap)
-        if len(cols) == ncols:
-            edges = [x1] + [to_pt((cols[i][1] + cols[i + 1][0]) / 2) for i in range(ncols - 1)] + [x2]
-            widths = [max(12.0, edges[i + 1] - edges[i]) for i in range(ncols)]
-    pitch = max(natural_pitch(st), (y2 - y1) / max(1, len(rows)))
-    return Table(block=block, rows=rows, col_widths=widths, style=st,
-                 pitch=pitch, top=y1, bottom=y2, left=x1, borders=bool(block.get("ruled", True)))
+        header = None
+        if block.get("bbox"):
+            x1, y1, x2, y2 = block["bbox"]
+        elif lines:
+            x1 = min(l["bbox"][0] for l in lines); x2 = max(l["bbox"][2] for l in lines)
+            y1 = min(l["bbox"][1] for l in lines); y2 = max(l["bbox"][3] for l in lines)
+        else:
+            return None
+        xs = [x1 + (x2 - x1) * i / ncols for i in range(ncols + 1)]
+        if lines and ncols > 1:
+            heights = sorted(l["bbox"][3] - l["bbox"][1] for l in lines)
+            gap = max(2, heights[len(heights) // 2] // 3)
+            cols = _columns([(tuple(l["bbox"]), l.get("text", "")) for l in lines], gap)
+            if len(cols) == ncols:
+                xs = [x1] + [(cols[i][1] + cols[i + 1][0]) / 2 for i in range(ncols - 1)] + [x2]
+        ys = [y1 + (y2 - y1) * i / nrows for i in range(nrows + 1)]
+
+    # Alignment of each cell from where its text sits on the scan (a
+    # barcode's number sits at the bottom of its cell, under the bars).
+    aligns = [["left"] * ncols for _ in range(nrows)]
+    valigns = [["center"] * ncols for _ in range(nrows)]
+    spans: dict = {}
+    for l in lines:
+        box = l.get("ink") or l["bbox"]
+        cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+        r = next((i for i in range(nrows) if cy < ys[i + 1]), nrows - 1)
+        c = next((i for i in range(ncols) if cx < xs[i + 1]), ncols - 1)
+        aligns[r][c] = _cell_align(box, xs[c], xs[c + 1])
+        lo, hi = spans.get((r, c), (box[1], box[3]))
+        spans[(r, c)] = (min(lo, box[1]), max(hi, box[3]))
+    for (r, c), (lo, hi) in spans.items():
+        h = ys[r + 1] - ys[r]
+        offset = ((lo + hi) / 2 - (ys[r] + ys[r + 1]) / 2) / max(1, h)
+        valigns[r][c] = "bottom" if offset > 0.18 else ("top" if offset < -0.18 else "center")
+
+    widths = [max(6.0, to_pt(xs[i + 1] - xs[i])) for i in range(ncols)]
+    heights = [max(4.0, to_pt(ys[i + 1] - ys[i])) for i in range(nrows)]
+    borders = bool(block.get("ruled"))
+    pad = 2.0 if borders else 0.0
+    cells = []
+    for ri, row in enumerate(rows):
+        cst = header if (ri == 0 and header) else st
+        out = []
+        for ci in range(ncols):
+            text = row[ci] if ci < len(row) else ""
+            parts = text.split("\n") if text else [""]
+            room = widths[ci] - 2 * pad
+            natural = max((F.text_width_pt(t, cst["font"], cst["bold"], cst["size"]) for t in parts),
+                          default=0.0)
+            # Shrink a line that wouldn't fit its cell rather than let it
+            # wrap: a wrapped cell makes the row, and the page, taller.
+            scale = 100 if natural <= 0 else int(np.clip(100 * FIT_MARGIN * room / natural, 50, 100))
+            out.append(Cell(parts, aligns[ri][ci], scale, valigns[ri][ci]))
+        cells.append(out)
+    return Table(block=block, cells=cells, col_widths=widths, row_heights=heights, style=st,
+                 header_style=header, top=to_pt(ys[0]), bottom=to_pt(ys[-1]), left=to_pt(xs[0]),
+                 borders=borders, padding=pad)
 
 
 def _fit(para: Para, room: float) -> None:

@@ -21,18 +21,21 @@ from typing import Dict, Set, Tuple
 from ..document import Document
 from ..reconstruct import enrich_document, is_enriched
 from ..reconstruct import fonts as F
-from ..reconstruct.plan import Band, Para, PagePlan, Table, build_document
+from ..reconstruct.plan import Band, Para, PagePlan, Table, build_document, natural_pitch
 from .docx_export import _import_docx
 
 EMU_PER_PT = 12700
 SPACER_PT = 1.0       # height of the empty paragraphs Word needs between tables
+BORDER = "808080"     # table grid lines: scanned grids are usually light
 
 
 # Latin text is set in a standard font, not the Khmer face's Latin letters:
 # a machine may have its own build of the Khmer font installed, which a word
 # processor prefers over the embedded copy, and some builds (Debian's Noto
 # Sans Khmer, for one) have no Latin letters at all.
-LATIN_FONTS = {"sans": "Arial", "serif": "Times New Roman", "muol": "Times New Roman"}
+# Arial throughout: the Latin letters of the Khmer OS fonts are sans-serif,
+# and so are the digits in most Khmer forms and tables.
+LATIN_FONTS = {"sans": "Arial", "serif": "Arial", "muol": "Arial"}
 
 
 def _font_names(style: dict, mode: str) -> Tuple[str, str]:
@@ -168,7 +171,7 @@ class _Writer:
         return para
 
     # ── tables ──────────────────────────────────────────────────────────
-    def _table_props(self, table, widths, borders: bool, indent: float = 0.0):
+    def _table_props(self, table, widths, borders: bool, indent: float = 0.0, padding: float = 0.0):
         from docx.oxml import OxmlElement
         from docx.oxml.ns import qn
         from docx.shared import Pt
@@ -191,13 +194,13 @@ class _Writer:
         b = el("w:tblBorders")
         for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
             if borders:
-                b.append(el(f"w:{edge}", **{"w:val": "single", "w:sz": 4, "w:space": 0, "w:color": "000000"}))
+                b.append(el(f"w:{edge}", **{"w:val": "single", "w:sz": 4, "w:space": 0, "w:color": BORDER}))
             else:
                 b.append(el(f"w:{edge}", **{"w:val": "nil"}))
         tblpr.append(b)
         tblpr.append(el("w:tblLayout", **{"w:type": "fixed"}))
         mar = el("w:tblCellMar")
-        pad = 2 * 20 if borders else 0
+        pad = int(round(padding * 20))
         for side in ("top", "left", "bottom", "right"):
             mar.append(el(f"w:{side}", **{"w:w": pad if side in ("left", "right") else 0, "w:type": "dxa"}))
         tblpr.append(mar)
@@ -234,26 +237,35 @@ class _Writer:
         self.last_was_table = True
 
     def table(self, t: Table, space_before: float, left_margin: float):
-        from docx.enum.table import WD_ROW_HEIGHT_RULE
+        """A table with the scan's column widths and exact row heights, text
+        aligned in each cell (across and up/down) as on the scan."""
+        from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.shared import Pt
 
         self._before_table(space_before)
-        rows, widths = t.rows, t.col_widths
-        ncols = max(len(r) for r in rows)
-        widths = (widths + [widths[-1]] * ncols)[:ncols]
-        table = self.word.add_table(rows=len(rows), cols=ncols)
-        self._table_props(table, widths, borders=t.borders, indent=t.left - left_margin)
-        for ri, row in enumerate(rows):
-            table.rows[ri].height = Pt(t.pitch)
-            table.rows[ri].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
-            for ci in range(ncols):
+        nrows, ncols = len(t.cells), len(t.col_widths)
+        table = self.word.add_table(rows=nrows, cols=ncols)
+        self._table_props(table, t.col_widths, borders=t.borders, indent=t.left - left_margin,
+                          padding=t.padding)
+        align = {"center": WD_ALIGN_PARAGRAPH.CENTER, "right": WD_ALIGN_PARAGRAPH.RIGHT}
+        for ri, row in enumerate(t.cells):
+            height = t.row_heights[ri]
+            table.rows[ri].height = Pt(height)
+            table.rows[ri].height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+            style = t.header_style if (ri == 0 and t.header_style) else t.style
+            for ci, c in enumerate(row[:ncols]):
                 cell = table.cell(ri, ci)
+                cell.vertical_alignment = {"top": WD_CELL_VERTICAL_ALIGNMENT.TOP,
+                                           "bottom": WD_CELL_VERTICAL_ALIGNMENT.BOTTOM}.get(
+                    c.valign, WD_CELL_VERTICAL_ALIGNMENT.CENTER)
                 p = cell.paragraphs[0]
-                self._exact(p, max(t.style["size"] * 1.5, min(t.pitch, t.style["size"] * 2.2)))
-                text = row[ci] if ci < len(row) else ""
-                lines = text.split("\n")
+                lines = c.lines or [""]
+                pitch = min(natural_pitch(style), height / len(lines))
+                self._exact(p, max(style["size"] * 1.05, pitch))
+                p.paragraph_format.alignment = align.get(c.align, WD_ALIGN_PARAGRAPH.LEFT)
                 for li, line in enumerate(lines):
-                    run = self._run(p, line, t.style)
+                    run = self._run(p, line, style, c.scale)
                     if li < len(lines) - 1:
                         run.add_break()
         self.last_was_table = True

@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, features
 
-from .style import Ink, measure
+from .style import Ink, is_latin, measure
 
 FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
 REF_PX = 48          # reference render size (em, px): width and a first size guess
@@ -139,7 +139,7 @@ def _measure_at(text: str, family: str, bold: bool, size_px: float) -> Optional[
     scale -- so stroke weight and pixel rounding compare like for like
     (a downscaled large render has thinner strokes than a small one)."""
     img = render(text, family, bold, max(4, int(round(size_px))))
-    return measure(img)
+    return measure(img, latin=is_latin(text))
 
 
 def fit(scan: Ink, text: str, family: str, bold: bool) -> Optional[Fit]:
@@ -147,7 +147,7 @@ def fit(scan: Ink, text: str, family: str, bold: bool) -> Optional[Fit]:
     if not text.strip() or scan.core < 2:
         return None
     img = render(text, family, bold)
-    ref = measure(img, threshold=128)
+    ref = measure(img, threshold=128, latin=is_latin(text))
     if ref is None or ref.core == 0:
         return None
     # First guess from the large render, then refine at the scan's scale

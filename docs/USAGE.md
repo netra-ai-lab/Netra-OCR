@@ -76,6 +76,9 @@ Word output rebuilds each page as it looked, not just what it says. The
   the recognized text in candidate fonts and comparing it with the scan;
 - line breaks, indents, centring, justification and the vertical spacing of every line;
 - side-by-side blocks, such as a ministry letterhead opposite the kingdom motto;
+- ruled tables from their drawn grid, even when the lines are faint: exact column
+  widths and row heights, borders, the header row's own font, and each cell's text
+  aligned as on the scan (barcodes in cells are kept as pictures, not read as text);
 - everything the models don't read (seals, signatures, ruled lines, ticks), cut out
   as transparent pictures and placed where they were.
 

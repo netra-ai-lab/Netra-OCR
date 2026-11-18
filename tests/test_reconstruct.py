@@ -254,3 +254,87 @@ def test_export_without_page_images():
     from docx import Document as Word
     word = Word(io.BytesIO(export(doc, "docx")[0]))
     assert any("សួស្តី" in p.text for p in word.paragraphs)
+
+
+# ── ruled tables ─────────────────────────────────────────────────────────
+
+def make_ruled_table():
+    """A faint-grey ruled table (4 columns x 5 rows) with barcodes in the
+    second column (sharing a prefix, so their bars line up) and dates."""
+    rng = np.random.default_rng(0)
+    img = Image.new("L", (1000, 420), 252)
+    d = ImageDraw.Draw(img)
+    xs, ys = [40, 140, 460, 700, 960], [30, 100, 170, 240, 310, 380]
+    for y in ys:
+        d.line([(xs[0], y), (xs[-1], y)], fill=238, width=2)    # 14 grey levels: barely visible
+    for x in xs:
+        d.line([(x, ys[0]), (x, ys[-1])], fill=238, width=2)
+    prefix = rng.integers(0, 2, 40)
+    lines = []
+    font = F._font(F.FAMILIES["sans"].file(False), 24)
+    for r in range(1, 5):
+        y = ys[r]
+        bits = np.concatenate([prefix, rng.integers(0, 2, 30)])
+        for i, bit in enumerate(bits):                           # the barcode
+            if bit:
+                d.rectangle([180 + 3 * i, y + 8, 180 + 3 * i + 1, y + 44], fill=10)
+        lines.append(((176, y + 6, 396, y + 46), "II Nilliania"))   # what OCR makes of it
+        text = f"0{r}-2022"
+        d.text((520, y + 46), text, font=font, fill=20, anchor="ls")
+        lines.append(((514, y + 22, 520 + int(font.getlength(text)) + 6, y + 54), text))
+        d.text((60, y + 46), str(r), font=font, fill=20, anchor="ls")
+        lines.append(((54, y + 22, 80, y + 54), str(r)))
+    d.text((520, 72), "Date", font=font, fill=20, anchor="ls")
+    lines.append(((514, 48, 580, 80), "Date"))
+    return np.asarray(img), lines, xs, ys
+
+
+def test_ruled_grid_reads_faint_lines_and_ignores_barcodes():
+    from netra_ocr.layout.table import cells_from_grid, ruled_grid
+    from netra_ocr.structure import is_barcode
+
+    gray, lines, xs, ys = make_ruled_table()
+    barcodes = [b for b, t in lines if is_barcode(gray, b)]
+    assert len(barcodes) == 4 and all(t == "II Nilliania" for b, t in lines if b in barcodes)
+    text = [(b, t) for b, t in lines if b not in barcodes]
+
+    found = ruled_grid(gray, (35, 25, 965, 385), text)
+    assert found is not None
+    fy, fx = found
+    assert len(fy) == len(ys) and all(abs(a - b) <= 3 for a, b in zip(fy, ys))
+    assert len(fx) == len(xs) and all(abs(a - b) <= 3 for a, b in zip(fx, xs))
+    cells = cells_from_grid(text, fy, fx)
+    assert cells[0][2] == "Date" and cells[2][2] == "02-2022" and cells[4][0] == "4"
+    assert cells[1][1] == ""                                   # barcode cell: no noise text
+
+
+def test_ruled_table_keeps_its_grid_in_word():
+    from docx import Document as Word
+    from netra_ocr.layout.table import cells_from_grid, ruled_grid
+    from netra_ocr.structure import is_barcode
+
+    gray, lines, xs, ys = make_ruled_table()
+    text = [(b, t) for b, t in lines if not is_barcode(gray, b)]
+    fy, fx = ruled_grid(gray, (35, 25, 965, 385), text)
+    assets = AssetStore()
+    assets.put("page-0", Image.fromarray(gray).convert("RGB"))
+    block = {"id": "t", "type": "table", "page": 0, "bbox": [35, 25, 965, 385],
+             "rows": cells_from_grid(text, fy, fx), "grid": {"rows": fy, "cols": fx}, "ruled": True,
+             "lines": [{"text": t, "bbox": list(b)} for b, t in text]}
+    doc = Document.from_dict({"pages": [{"width": 1000, "height": 420, "image": "page-0"}],
+                              "blocks": [block]}, assets)
+    from netra_ocr.reconstruct import enrich_document
+    enrich_document(doc)
+    plan = PL.build_document(doc)[0]
+    table = next(b.item for b in plan.bands if isinstance(b.item, PL.Table))
+    dpi = doc.pages[0]["dpi"]
+    assert [round(h, 1) for h in table.row_heights] == [round((b - a) * 72 / dpi, 1) for a, b in zip(fy, fy[1:])]
+    assert table.cells[2][2].align == "center" and table.cells[1][0].align == "left"
+
+    word = Word(io.BytesIO(export(doc, "docx")[0]))
+    assert len(word.tables) == 1
+    t = word.tables[0]
+    assert len(t.rows) == 5 and len(t.columns) == 4
+    assert t.cell(2, 2).text == "02-2022"
+    xml = t._tbl.xml
+    assert 'w:hRule="exact"' in xml and 'w:val="single"' in xml   # exact rows, drawn borders
