@@ -221,15 +221,31 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return jobs().reset_document(job_id).to_dict()
 
     @app.get("/v1/jobs/{job_id}/export", summary="Download the document",
-             description="Exports the edited document. `md` becomes a .zip when the document has figures.")
-    def export_document(job_id: str, format: Literal["docx", "html", "md", "json", "txt"] = "docx"):
+             description="Exports the edited document. `md` becomes a .zip when the document has figures. "
+                         "Word output rebuilds the original page (`layout=original`: fonts, sizes, colours, "
+                         "placement, seals) or writes a clean re-flowed document (`layout=reflow`).")
+    def export_document(job_id: str, format: Literal["docx", "html", "md", "json", "txt"] = "docx",
+                        layout: Literal["original", "reflow"] = "original"):
         doc = document_or_error(job_id)
+        if format == "docx" and layout == "original":
+            doc = jobs().enrich(job_id)
         job = jobs().get(job_id)
-        data, filename, mime = export(doc, format, basename=job.filename)
+        data, filename, mime = export(doc, format, basename=job.filename, layout=layout)
         from urllib.parse import quote
         return Response(data, media_type=mime, headers={
             "Content-Disposition": f"attachment; filename=\"document{os.path.splitext(filename)[1]}\"; "
                                    f"filename*=UTF-8''{quote(filename)}"})
+
+    @app.get("/v1/jobs/{job_id}/layout", summary="The page layout the Word export follows",
+             description="Each page as the original-layout Word export builds it, in points: paragraphs "
+                         "with their line breaks, pitch, indents and character scale; tables with column "
+                         "widths and row heights; side-by-side columns; floating pictures (logos, seals). "
+                         "The web editor draws this, so what you edit is what you download.")
+    def get_layout(job_id: str):
+        document_or_error(job_id)
+        from ..reconstruct import plan as PL
+        doc = jobs().enrich(job_id)
+        return {"revision": doc.revision, "pages": [PL.to_dict(p) for p in PL.build_document(doc)]}
 
     @app.get("/v1/jobs/{job_id}/assets/{asset_id}", summary="A page render or figure/table crop")
     def get_asset(job_id: str, asset_id: str):
@@ -240,12 +256,27 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return FileResponse(path, headers={"Cache-Control": "private, max-age=86400, immutable"})
 
     # ── web UI ─────────────────────────────────────────────────────────
+    # "no-cache": the browser keeps the files but revalidates them (ETag)
+    # on every load, so an upgraded server never runs with a stale UI.
     @app.get("/", include_in_schema=False)
     def index():
-        return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+        return FileResponse(os.path.join(STATIC_DIR, "index.html"), headers=UI_CACHE)
 
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    # The faces the Word export embeds, so the editor sets text in them too.
+    from ..reconstruct.fonts import FONT_DIR
+    app.mount("/docfonts", _RevalidatedStatic(directory=FONT_DIR), name="docfonts")
+    app.mount("/static", _RevalidatedStatic(directory=STATIC_DIR), name="static")
     return app
+
+
+UI_CACHE = {"Cache-Control": "no-cache"}
+
+
+class _RevalidatedStatic(StaticFiles):
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers.update(UI_CACHE)
+        return response
 
 
 app = create_app()

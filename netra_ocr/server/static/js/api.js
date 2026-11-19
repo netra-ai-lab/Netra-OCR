@@ -48,11 +48,13 @@ export const api = {
   deleteJob: (id) => request("DELETE", `/v1/jobs/${id}`),
   upload: (form) => request("POST", "/v1/ocr", { body: form }),
   document: (id) => request("GET", `/v1/jobs/${id}/document`),
+  layout: (id) => request("GET", `/v1/jobs/${id}/layout`),
   saveDocument: (id, doc, revision, keepalive = false) => request("PUT", `/v1/jobs/${id}/document`, {
     body: JSON.stringify(doc), keepalive,
     headers: { "Content-Type": "application/json", "If-Match": `"${revision}"` },
   }),
   resetDocument: (id) => request("POST", `/v1/jobs/${id}/document/reset`),
   assetUrl: (id, asset) => withKey(`/v1/jobs/${id}/assets/${asset}`),
-  exportUrl: (id, format) => withKey(`/v1/jobs/${id}/export?format=${format}`),
+  exportUrl: (id, format, layout) =>
+    withKey(`/v1/jobs/${id}/export?format=${format}${layout ? `&layout=${layout}` : ""}`),
 };

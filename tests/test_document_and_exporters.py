@@ -74,7 +74,7 @@ def test_all_formats_export():
 def test_docx_is_structured():
     from docx import Document as Word
     from docx.oxml.ns import qn
-    word = Word(io.BytesIO(export(make_doc(), "docx")[0]))
+    word = Word(io.BytesIO(export(make_doc(), "docx", layout="reflow")[0]))
     styles = [(p.style.name, p.text) for p in word.paragraphs if p.text]
     assert ("Heading 1", "ព្រះរាជាណាចក្រកម្ពុជា\nជាតិ សាសនា") in styles
     assert ("Caption", "Figure 1") in styles

@@ -12,9 +12,15 @@
 ARG PYTHON_VERSION=3.12
 
 # ── base: shared by the build and runtime stages ─────────────────────────────
-# No system packages: the app needs no OpenCV and no Tesseract (those detectors
-# are optional extras, left out of the image to keep it small).
+# One system package: libraqm (with FriBiDi and HarfBuzz), which Pillow loads
+# to shape Khmer text. Rebuilding a page measures each line by rendering it in
+# candidate fonts; without shaping that falls back to rough sizes. No OpenCV
+# and no Tesseract: those detectors are optional extras, left out to keep the
+# image small.
 FROM python:${PYTHON_VERSION}-slim AS base
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libraqm0 \
+ && rm -rf /var/lib/apt/lists/*
 
 # ── build: virtualenv with netra-ocr[server] on ONNX Runtime (CPU), pruned ──
 FROM base AS build

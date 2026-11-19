@@ -24,6 +24,17 @@ page_header, page_footer. Text blocks keep line breaks as "\n". Blocks are
 in reading order; a change of ``page`` between consecutive blocks is a page
 break. ``bbox``/``label``/``lines`` record where the block came from on the
 page image (for highlighting in the editor) and are informational only.
+
+Optional appearance fields, measured by ``netra_ocr.reconstruct`` so the
+original page can be rebuilt (all informational; editing never needs them):
+
+* page: ``dpi``, ``size_pt`` ([w, h] in points), ``body_font``,
+  ``body_size``, and ``overlays`` -- marks the models don't read (seals,
+  signatures, rules) as ``[{"image", "bbox", "kind"}]``.
+* text and table blocks: ``style`` -- ``{"font", "size", "bold", "color"}``;
+  tables also ``ruled`` (grid lines on the scan), ``grid`` (``{"rows",
+  "cols"}``: the drawn grid's edges in page pixels) and ``header_style``.
+* lines: ``ink`` (tight ink box) and ``scale`` (character width, %).
 """
 
 import io
@@ -44,6 +55,12 @@ BLOCK_TYPES = TEXT_TYPES | IMAGE_TYPES | {"table"}
 _ASSET_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _MAX_TEXT = 100_000
 _MAX_BLOCKS = 20_000
+
+
+_FONT_KEYS = {"muol", "sans", "serif"}
+_COLOUR = re.compile(r"^[0-9a-fA-F]{6}$")
+_OVERLAY_KINDS = {"stamp", "signature", "mark"}
+_MAX_OVERLAYS = 500
 
 
 class DocumentValidationError(ValueError):
@@ -175,6 +192,92 @@ def _text(v, where):
     return v
 
 
+def _number(v, where, lo: float, hi: float) -> float:
+    if not isinstance(v, (int, float)) or isinstance(v, bool) or not (lo <= v <= hi):
+        raise DocumentValidationError(f"{where}: expected a number in [{lo}, {hi}]")
+    return float(v)
+
+
+def _line(l: dict, where: str) -> dict:
+    out = {"text": _text(l.get("text", ""), where), "bbox": _bbox(l.get("bbox"), where)}
+    if l.get("ink") is not None:
+        out["ink"] = _bbox(l["ink"], where)
+    if l.get("scale") is not None:
+        out["scale"] = int(_number(l["scale"], f"{where}: line scale", 1, 1000))
+    return out
+
+
+def _grid(v, where: str) -> dict:
+    """A ruled table's row and column edges (page pixels, increasing)."""
+    if not isinstance(v, dict):
+        raise DocumentValidationError(f"{where}: grid must be an object")
+    out = {}
+    for key in ("rows", "cols"):
+        edges = v.get(key)
+        if (not isinstance(edges, list) or not 2 <= len(edges) <= 1000
+                or not all(isinstance(e, (int, float)) and not isinstance(e, bool) for e in edges)
+                or any(b <= a for a, b in zip(edges, edges[1:]))):
+            raise DocumentValidationError(f"{where}: grid {key} must be increasing numbers")
+        out[key] = [int(e) for e in edges]
+    return out
+
+
+def _style(v, where: str) -> Optional[dict]:
+    if v is None:
+        return None
+    if not isinstance(v, dict):
+        raise DocumentValidationError(f"{where}: style must be an object")
+    out = {}
+    if "font" in v:
+        if v["font"] not in _FONT_KEYS:
+            raise DocumentValidationError(f"{where}: style font must be one of {sorted(_FONT_KEYS)}")
+        out["font"] = v["font"]
+    if "size" in v:
+        out["size"] = _number(v["size"], f"{where}: style size", 1, 400)
+    if "bold" in v:
+        if not isinstance(v["bold"], bool):
+            raise DocumentValidationError(f"{where}: style bold must be true or false")
+        out["bold"] = v["bold"]
+    if "color" in v:
+        if not isinstance(v["color"], str) or not _COLOUR.match(v["color"]):
+            raise DocumentValidationError(f"{where}: style color must be 6 hex digits")
+        out["color"] = v["color"].lower()
+    return out
+
+
+def _page_appearance(p: dict, where: str, asset_ref) -> dict:
+    out = {}
+    if p.get("dpi") is not None:
+        out["dpi"] = _number(p["dpi"], f"{where}: dpi", 1, 10000)
+    size = p.get("size_pt")
+    if size is not None:
+        if not isinstance(size, list) or len(size) != 2:
+            raise DocumentValidationError(f"{where}: size_pt must be [width, height]")
+        out["size_pt"] = [_number(x, f"{where}: size_pt", 1, 20000) for x in size]
+    if p.get("body_font") is not None:
+        if p["body_font"] not in _FONT_KEYS:
+            raise DocumentValidationError(f"{where}: unknown body_font")
+        out["body_font"] = p["body_font"]
+    if p.get("body_size") is not None:
+        out["body_size"] = _number(p["body_size"], f"{where}: body_size", 1, 400)
+    overlays = p.get("overlays")
+    if overlays is not None:
+        if not isinstance(overlays, list) or len(overlays) > _MAX_OVERLAYS:
+            raise DocumentValidationError(f"{where}: overlays must be a list")
+        out["overlays"] = []
+        for k, ov in enumerate(overlays):
+            w = f"{where}.overlays[{k}]"
+            if not isinstance(ov, dict):
+                raise DocumentValidationError(f"{w} must be an object")
+            image = asset_ref(ov.get("image"), w)
+            if image is None or ov.get("bbox") is None:
+                raise DocumentValidationError(f"{w}: needs an image and a bbox")
+            kind = ov.get("kind", "mark")
+            out["overlays"].append({"image": image, "bbox": _bbox(ov["bbox"], w),
+                                    "kind": kind if kind in _OVERLAY_KINDS else "mark"})
+    return out
+
+
 def validate(data: dict, assets: AssetStore):
     """Validate and normalize a document dict. Returns (pages, blocks)."""
     if not isinstance(data, dict):
@@ -185,19 +288,21 @@ def validate(data: dict, assets: AssetStore):
     if len(blocks_in) > _MAX_BLOCKS:
         raise DocumentValidationError("too many blocks")
 
-    pages = []
-    for i, p in enumerate(pages_in):
-        if not isinstance(p, dict):
-            raise DocumentValidationError(f"pages[{i}] must be an object")
-        pages.append({"index": i, "width": int(p.get("width", 0)), "height": int(p.get("height", 0)),
-                      "image": p.get("image") if isinstance(p.get("image"), str) else None})
-
     def asset_ref(v, where):
         if v is None:
             return None
         if not isinstance(v, str) or v not in assets:
             raise DocumentValidationError(f"{where}: unknown image {v!r}")
         return v
+
+    pages = []
+    for i, p in enumerate(pages_in):
+        if not isinstance(p, dict):
+            raise DocumentValidationError(f"pages[{i}] must be an object")
+        page = {"index": i, "width": int(p.get("width", 0)), "height": int(p.get("height", 0)),
+                "image": p.get("image") if isinstance(p.get("image"), str) else None}
+        page.update(_page_appearance(p, f"pages[{i}]", asset_ref))
+        pages.append(page)
 
     blocks, seen = [], set()
     for i, b in enumerate(blocks_in):
@@ -221,8 +326,17 @@ def validate(data: dict, assets: AssetStore):
         if isinstance(b.get("lines"), list):
             # Source OCR lines (text + bbox) -- kept as recognized, for API
             # consumers that want line geometry; edits don't touch them.
-            out["lines"] = [{"text": _text(l.get("text", ""), where), "bbox": _bbox(l.get("bbox"), where)}
-                            for l in b["lines"] if isinstance(l, dict)]
+            out["lines"] = [_line(l, where) for l in b["lines"] if isinstance(l, dict)]
+        if btype in TEXT_TYPES or btype == "table":
+            style = _style(b.get("style"), where)
+            if style:
+                out["style"] = style
+        if btype == "table" and isinstance(b.get("ruled"), bool):
+            out["ruled"] = b["ruled"]
+        if btype == "table" and b.get("grid") is not None:
+            out["grid"] = _grid(b["grid"], where)
+        if btype == "table" and b.get("header_style") is not None:
+            out["header_style"] = _style(b["header_style"], where)
 
         if btype in TEXT_TYPES:
             out["text"] = _text(b.get("text", ""), where)

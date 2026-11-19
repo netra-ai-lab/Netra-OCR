@@ -2,6 +2,10 @@
 
     data, filename, mimetype = export(doc, "docx")
     save_document(doc, "result.docx")      # format from the extension
+
+Word output has two layouts: ``"original"`` (default) rebuilds each page as
+it looked (``docx_layout``), ``"reflow"`` writes a clean semantic document
+(``docx_export``).
 """
 
 import json
@@ -18,10 +22,22 @@ FORMATS = {
 }
 
 
-def export(doc: Document, fmt: str, basename: str = "document") -> tuple[bytes, str, str]:
-    """Render ``doc`` as ``fmt``. Returns ``(data, filename, mimetype)``."""
+LAYOUTS = ("original", "reflow")
+
+
+def export(doc: Document, fmt: str, basename: str = "document", layout: str = "original",
+           fonts: str = "embed") -> tuple[bytes, str, str]:
+    """Render ``doc`` as ``fmt``. Returns ``(data, filename, mimetype)``.
+
+    ``layout`` and ``fonts`` apply to Word output; see ``docx_layout``.
+    """
     fmt = fmt.lower().lstrip(".")
+    if layout not in LAYOUTS:
+        raise ValueError(f"layout must be one of {LAYOUTS}")
     if fmt == "docx":
+        if layout == "original":
+            from .docx_layout import to_docx_layout
+            return to_docx_layout(doc, fonts=fonts), f"{basename}.docx", FORMATS["docx"]
         from .docx_export import to_docx
         return to_docx(doc), f"{basename}.docx", FORMATS["docx"]
     if fmt == "html":
@@ -39,7 +55,8 @@ def export(doc: Document, fmt: str, basename: str = "document") -> tuple[bytes, 
     raise ValueError(f"Unsupported format '{fmt}'. Supported: {sorted(FORMATS)}")
 
 
-def save_document(doc: Document, output_path: str) -> str:
+def save_document(doc: Document, output_path: str, layout: str = "original",
+                  fonts: str = "embed") -> str:
     """Write ``doc`` to ``output_path``; the extension picks the format.
 
     Markdown with figures is written as a .zip (document.md + images/), so
@@ -47,11 +64,11 @@ def save_document(doc: Document, output_path: str) -> str:
     """
     root, ext = os.path.splitext(output_path)
     fmt = ext.lstrip(".").lower() or "txt"
-    data, filename, _ = export(doc, fmt)
+    data, filename, _ = export(doc, fmt, layout=layout, fonts=fonts)
     path = root + os.path.splitext(filename)[1]
     with open(path, "wb") as f:
         f.write(data)
     return path
 
 
-__all__ = ["FORMATS", "export", "save_document"]
+__all__ = ["FORMATS", "LAYOUTS", "export", "save_document"]

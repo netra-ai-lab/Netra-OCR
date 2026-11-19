@@ -113,3 +113,61 @@ def test_only_installed_detectors_are_offered(client, monkeypatch):
     r = client.post("/v1/ocr", files={"file": ("a.png", png_bytes(), "image/png")},
                     data={"detector": "tesseract"})
     assert r.status_code == 422 and "isn't installed" in r.json()["detail"]
+
+
+def test_original_layout_export_measures_once_and_survives_edits(client):
+    r = client.post("/v1/ocr", files={"file": ("scan.png", png_bytes(), "image/png")})
+    job_id = r.json()["job"]["id"]
+    before = client.get(f"/v1/jobs/{job_id}/document").json()
+    assert "size_pt" not in before["pages"][0]             # measured on demand, not during OCR
+
+    docx = client.get(f"/v1/jobs/{job_id}/export", params={"format": "docx"})
+    assert docx.content[:2] == b"PK"
+    measured = client.get(f"/v1/jobs/{job_id}/document").json()
+    assert measured["pages"][0]["size_pt"] and measured["revision"] == before["revision"]
+
+    # The editor saves the copy it loaded before the measurement: kept anyway.
+    before["blocks"][1]["text"] = "Edited body"
+    assert client.put(f"/v1/jobs/{job_id}/document", json=before).status_code == 200
+    after = client.get(f"/v1/jobs/{job_id}/document").json()
+    assert after["pages"][0]["size_pt"] == measured["pages"][0]["size_pt"]
+
+    reflow = client.get(f"/v1/jobs/{job_id}/export", params={"format": "docx", "layout": "reflow"})
+    assert reflow.content[:2] == b"PK" and reflow.content != docx.content
+    assert client.get(f"/v1/jobs/{job_id}/export",
+                      params={"format": "docx", "layout": "sideways"}).status_code == 422
+
+
+def test_ui_files_are_revalidated(client):
+    # A stale app.css after an upgrade would show the old design with new markup.
+    for path in ("/", "/static/app.css", "/static/js/main.js", "/static/fonts/Figtree-Latin.woff2"):
+        r = client.get(path)
+        assert r.status_code == 200 and r.headers["cache-control"] == "no-cache", path
+
+
+def test_layout_is_the_word_plan_and_saves_keep_measurements(client):
+    r = client.post("/v1/ocr", files={"file": ("scan.png", png_bytes(), "image/png")})
+    job_id = r.json()["job"]["id"]
+    layout = client.get(f"/v1/jobs/{job_id}/layout")
+    assert layout.status_code == 200
+    page = layout.json()["pages"][0]
+    assert page["width"] > 0 and page["height"] > 0 and len(page["margins"]) == 4
+    items = [b["item"] for b in page["bands"] if b["item"]] + [
+        it for b in page["bands"] for c in b["columns"] for it in c["items"]]
+    assert {it["id"] for it in items} == {"a", "b"}
+    assert all(it["kind"] == "para" and it["pitch"] > 0 and it["style"]["size"] > 0 for it in items)
+
+    # An editor that loaded the blocks before they were measured must not
+    # wipe the measurements when it saves.
+    style = {"font": "muol", "size": 14.0, "bold": False, "color": "000000"}
+    doc = client.get(f"/v1/jobs/{job_id}/document").json()
+    doc["blocks"][0]["style"] = style
+    client.put(f"/v1/jobs/{job_id}/document", json=doc, headers={"If-Match": f'"{doc["revision"]}"'})
+    doc = client.get(f"/v1/jobs/{job_id}/document").json()
+    for b in doc["blocks"]:
+        b.pop("style", None)
+    doc["blocks"][1]["text"] = "Edited"
+    client.put(f"/v1/jobs/{job_id}/document", json=doc, headers={"If-Match": f'"{doc["revision"]}"'})
+    saved = client.get(f"/v1/jobs/{job_id}/document").json()
+    assert saved["blocks"][0].get("style") == style and saved["blocks"][1]["text"] == "Edited"
+    assert client.get("/docfonts/Moul-Regular.ttf").status_code == 200

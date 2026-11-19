@@ -5,6 +5,10 @@ text is the CPU output (GPU arithmetic differs slightly). After a deliberate
 change to the models or the pipeline, regenerate it and review the diff:
 
     NETRA_DEVICE=cpu python tests/test_real_models.py
+
+The pages are the ones named in the golden file. To add one, put it in
+test_images/ (``git add -f``: other pages there stay local), add its name to
+the golden file with any text, and regenerate.
 """
 
 import json
@@ -14,8 +18,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-PAGES = sorted((ROOT / "test_images").iterdir())
 GOLDEN = Path(__file__).parent / "golden" / "pages_cpu.json"
+# The pages with known-good text; others in test_images/ are local and untracked.
+PAGES = [ROOT / "test_images" / name for name in sorted(json.loads(GOLDEN.read_text(encoding="utf-8")))]
 
 
 def page_texts(decoder: str = "ar") -> dict[str, str]:

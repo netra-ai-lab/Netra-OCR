@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netra-ocr"
-version = "1.2.0"
+version = "1.3.0"
 description = "Khmer OCR engine using a Squeeze-and-Excitation Transformer network for text-line recognition, with pluggable text detectors (YOLO, Tesseract, classic CV)."
 readme = "readme.md"
 requires-python = ">=3.10"
@@ -81,6 +81,8 @@ include-package-data = false
 # (see netra_ocr/models.py). Only the static UI ships.
 [tool.setuptools.package-data]
 "netra_ocr.server" = ["static/*.html", "static/*.css", "static/*.svg", "static/js/*.js", "static/fonts/*.woff2"]
+# OFL fonts used to measure scans and embedded in original-layout Word output.
+"netra_ocr.reconstruct" = ["fonts/*.ttf", "fonts/OFL.txt"]
 
 [dependency-groups]
 dev = [

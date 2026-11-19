@@ -2,13 +2,15 @@
 
 This script exercises every code path the server can reach -- the line
 detector with and without layout analysis, both decoders, PDF input, every
-export format and the web app itself -- so a prune that goes too far fails the
+export format, page measuring for the editor and the original-layout Word
+file, and the web app itself -- so a prune that goes too far fails the
 build instead of the first upload. It also checks that OpenCV and SciPy stay
 out of the image: the optional legacy and Tesseract detectors aren't in it.
 """
 
 import importlib.util
 import io
+import os
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -43,7 +45,23 @@ for fmt in FORMATS:
     assert data, fmt
     print(f"export {fmt}: {len(data)} bytes")
 
+# The web app's pipeline also measures each page (fonts, sizes, pictures) so
+# the editor and the original-layout Word file share one layout.
+from netra_ocr.reconstruct import fonts as F, plan as PL  # noqa: E402
+
+doc = KhmerOCRPipeline(layout=True, reconstruct=True).process_document(png.getvalue())
+assert doc.pages[0].get("size_pt") and any(b.get("style") for b in doc.blocks), "page not measured"
+layout = PL.to_dict(PL.build_document(doc)[0])
+assert layout["bands"], "empty layout"
+assert F.HAS_SHAPING, "Pillow can't shape Khmer text (libraqm missing): pages would be measured roughly"
+data, _, _ = export(doc, "docx", "smoke", layout="original")
+print(f"measured: {len(layout['bands'])} bands, original-layout docx {len(data)} bytes")
+
 from netra_ocr.server.app import create_app  # noqa: E402
 
-create_app()
+app = create_app()
+paths = {getattr(r, "path", "") for r in app.routes}
+assert {"/v1/jobs/{job_id}/layout", "/docfonts", "/static"} <= paths, paths
+for name in ("Moul-Regular.ttf", "NotoSansKhmer-Regular.ttf", "NotoSerifKhmer-Bold.ttf"):
+    assert os.path.exists(os.path.join(F.FONT_DIR, name)), f"editor font missing: {name}"
 print("smoke test passed")

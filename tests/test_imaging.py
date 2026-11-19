@@ -1,5 +1,6 @@
 """netra_ocr.imaging must give exactly what the OpenCV calls it replaces give."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +9,10 @@ import pytest
 from netra_ocr import imaging
 
 cv2 = pytest.importorskip("cv2")
-PAGES = sorted((Path(__file__).resolve().parent.parent / "test_images").iterdir())
+ROOT = Path(__file__).resolve().parent.parent
+# The tracked pages (those with golden text); others in test_images/ are local.
+PAGES = [ROOT / "test_images" / name
+         for name in sorted(json.loads((ROOT / "tests" / "golden" / "pages_cpu.json").read_text(encoding="utf-8")))]
 
 
 def sorted_rows(stats):

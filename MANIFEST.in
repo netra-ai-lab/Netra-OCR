@@ -4,6 +4,7 @@ include LICENSE
 # No model weights: the models are ONNX model folders downloaded on first
 # use (see netra_ocr/models.py).
 recursive-include netra_ocr/server/static *.html *.css *.svg *.js *.woff2
+recursive-include netra_ocr/reconstruct/fonts *.ttf OFL.txt
 
 # Never ship build artifacts or the other (large) checkpoints
 global-exclude *.pyc

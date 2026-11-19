@@ -1,190 +1,78 @@
-# Byte-compiled / optimized / DLL files
+# ── Python ────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
-.Python
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
-.installed.cfg
 *.egg
+.eggs/
+pip-wheel-metadata/
 
 # Virtual environments
 .env
-.venv
-.venv-deepseek
-.venv-unsloth
+.env.*
+.venv*/
 env/
 venv/
 ENV/
 myenv/
+.python-version
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
+# Test and type-checker caches
+.pytest_cache/
+.coverage
+.coverage.*
 htmlcov/
 .tox/
 .nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
 .hypothesis/
-
-# Pytest
-.pytest_cache/
-
-# Type checker
 .mypy_cache/
 .pyre/
 .pytype/
-
-# Jupyter Notebook
 .ipynb_checkpoints
 
-# IDEs and editors
+# Editors and OS
 .vscode/
 .idea/
-.spyderproject
-.spyproject
-
-# OS files
 .DS_Store
 Thumbs.db
-
-# Logs
 *.log
 
-# Hugging Face dataset cache
-.hf_cache/
+# Local assistant notes (each machine keeps its own)
+CLAUDE.md
 
-# Training / evaluation artifacts. The app downloads its models from
-# Hugging Face (netra_ocr/models.py); checkpoints are training-only. The YOLO
+# ── Test pages ────────────────────────────────────────────────────────────
+# Only the pages with known-good text in tests/golden/ are tracked. Pages you
+# drop in to try something stay local; add one for good with `git add -f`
+# together with its golden text.
+test_images/*
+
+# Output of scripts/reconstruct_eval.py and other local runs
+reconstruct_out/
+eval_out*/
+/output/
+/results/
+/uploads/
+
+# ── Models and data ───────────────────────────────────────────────────────
+# The app downloads its models from Hugging Face (netra_ocr/models.py);
+# checkpoints and datasets are training-only and never committed.
+/models/
+/bundles/
+.hf_cache/
+/test_set/
+/research/
+unsloth_compiled_cache/
+
+# Training runs (training/*.sh): checkpoints, logs, exported folders. The YOLO
 # line detector's training run in training/weights/yolo26s_best/ is tracked.
+training/runs/
 training/weights/*
 !training/weights/yolo26s_best/
 training/netra_ocr_train/EVAL_RESULTS.md
 training/netra_ocr_train/TEST_SET_EVAL_RESULTS.md
-eval_out*/
-test_set/
-bundles/
-# Training and evaluation runs (training/*.sh): checkpoints, logs, exported folders.
-training/runs/
-research/
-unsloth_compiled_cache/
 
-# Local dev environment / assistant notes
-.python-version
-CLAUDE.md
-
-# dotenv
-.env.*
-
-# images
-background/
-background.zip
-eval/
-hand_written_eval/
-khmerst-main/
-khob_eval/
-legal document/
-output/
-printed_eval/
-scene_text_data/
-
-temp_crops/
-test_img/
-surya_output/
-logs/
-aws_code/
-models/
-
-setup_hf_model/
-
-results/
-
-tesseract_test/
-failure_cases/
-
-# Files
-loss_curve.png
-inference_results.txt
-test_augment.py 
-tesseract_ocr.py 
-sort_height.py 
-sort_folder_legal.py 
-scene_text.py 
-run_surya.py 
-run_surya_folder.py 
-rec_khmer_train.yml 
-real_data_sort.py 
-printed_eval_dataset.py 
-plot.ipynb 
-padding.py 
-normalizer.py 
-
-khob_eval.py 
-khmerocr_epoch50.pth 
-khmer_template.py 
-khmer_dictionary.txt 
-Khmer_config.yaml 
-annotate.py 
-augmentation.py 
-chunk.py 
-chunking.py 
-clean_labels.py 
-clean_train_log.py 
-generate.py 
-handwritting.py 
-inference_test.py
-recognize_test.py
-test_image_2.png 
-test_image_3.png
-docx_convert.py
-clean_resnet.txt
-clean_vgg.txt 
-test_image_2.txt 
-test_image_3.txt 
-loss_curves.png 
-
-failures_khob_eval.txt
-sort_failure.py
-
-uploads
-
-hf_space/
-
-OCR_COMPARISON_RESULTS.md
-
-plot_benchmark.py
-CHART_STYLE_GUIDE.md
-
-result.md
-
-brand-guideline/
+# ── Web ───────────────────────────────────────────────────────────────────
+node_modules/

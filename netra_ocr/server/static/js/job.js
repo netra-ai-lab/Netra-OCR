@@ -4,7 +4,8 @@ import { copyText, h, icon, iconButton, isKhmer, toast } from "./util.js";
 
 const TEXT_TYPES = new Set(["heading", "paragraph", "caption", "page_header", "page_footer"]);
 const TYPE_CHOICES = ["heading-1", "heading-2", "heading-3", "paragraph", "caption", "page_header", "page_footer"];
-const FORMATS = ["docx", "html", "md", "json", "txt"];
+// "docx" rebuilds the original page; "docx-reflow" is the clean, re-flowed Word document.
+const FORMATS = ["docx", "docx-reflow", "html", "md", "json", "txt"];
 const HISTORY_LIMIT = 200;
 const SAVE_DELAY = 700;
 
@@ -20,24 +21,22 @@ function typeKey(b) {
   return b.type === "heading" ? `heading-${b.level || 1}` : b.type;
 }
 
-// ── sizing from the scan ────────────────────────────────────────────────
-// The editor draws each page as a sheet the width of the scan, so sizes are
-// in cqw (percent of the sheet's width): a paragraph, a logo or a gap takes
-// the same share of the sheet as it does of the scanned page.
+// ── the Word layout ─────────────────────────────────────────────────────
+// Sheets are drawn from the same page plan the original-layout Word export
+// follows (GET /v1/jobs/{id}/layout, in points): exact line pitch and space
+// before, indents, the scan's line breaks with each line's character scale,
+// tables with the scan's column widths and row heights, side-by-side
+// columns, and logos and seals floating behind the text. Text is set in
+// the faces the .docx embeds (Moul, Noto Sans/Serif Khmer) with Arial for
+// Latin, as in the .docx. A block you edit is reflowed, as Word does.
 
-// A Khmer line box (stacked vowels and subscripts) is about 2x the type size.
-const LINE_TO_FONT = 0.54;
-// Fallback body size for pages with no measurable paragraph, ~15px on a 750px sheet.
-const DEFAULT_BODY = 0.02;
-// Clamp scan sizes by block type, relative to the page's body size, so a
-// heading always reads as one and a paragraph that was a heading shrinks back.
-// Paragraphs all take the body size: their measured line heights differ by
-// a few pixels, and on screen that reads as noise, not as the document.
-const SIZE_RANGE = {
-  "heading-1": [1.15, 2], "heading-2": [1.08, 1.6], "heading-3": [1, 1.4],
-  paragraph: [1, 1], caption: [0.8, 1], page_header: [0.75, 1], page_footer: [0.75, 1], table: [0.85, 1],
-};
-const DEFAULT_SIZE = { "heading-1": 1.4, "heading-2": 1.25, "heading-3": 1.1, caption: 0.88, page_header: 0.8, page_footer: 0.8 };
+const DOC_FONTS = { muol: '"Doc Moul"', sans: '"Doc Noto Sans Khmer"', serif: '"Doc Noto Serif Khmer"' };
+const LATIN_FONT = 'Arial, "Liberation Sans", Helvetica, sans-serif';
+const DEFAULT_STYLE = { font: "sans", size: 11, bold: false, color: "000000" };
+const TABLE_RULE = "rgb(128, 128, 128)";      // the .docx grid colour
+
+const squash = (s) => (s || "").replace(/\s+/g, "");
+const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 
 function median(xs) {
   if (!xs.length) return null;
@@ -46,82 +45,32 @@ function median(xs) {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-function lineHeight(b) {
-  return median((b.lines || []).map((l) => l.bbox[3] - l.bbox[1]).filter((v) => v > 0));
+/** Text style of a block or cell, as CSS (sizes through ``u``, pt -> cqw). */
+function fontCss(st, u) {
+  const colour = /^[0-9a-fA-F]{6}$/.test(st.color || "") ? st.color : "000000";
+  return `font-family:${DOC_FONTS[st.font] || DOC_FONTS.sans}, ${LATIN_FONT};font-size:${u(st.size)};`
+    + `font-weight:${st.bold ? 700 : 400};color:#${colour}`;
 }
 
-const cqw = (fraction) => `${(fraction * 100).toFixed(3)}cqw`;
-const clampLen = (min, fraction, max) => `clamp(${min}, ${cqw(fraction)}, ${max})`;
-
-/** Margins and body size of one page, from where its blocks sit on the scan. */
-function pageMetrics(page, blocks) {
-  const W = page.width || 0;
-  const placed = blocks.filter((b) => b.bbox);
-  if (!W || !placed.length) return { W, body: DEFAULT_BODY, left: 0.08, right: 0.08, top: 0.07 };
-  const paraH = median(blocks.filter((b) => b.type === "paragraph").map(lineHeight).filter(Boolean))
-    ?? median(placed.map(lineHeight).filter(Boolean));
-  const within = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  const left = Math.min(...placed.map((b) => b.bbox[0])) / W;
-  const right = 1 - Math.max(...placed.map((b) => b.bbox[2])) / W;
-  const top = Math.min(...placed.map((b) => b.bbox[1])) / W;
-  return {
-    W,
-    body: paraH ? (paraH / W) * LINE_TO_FONT : DEFAULT_BODY,
-    left: within(left, 0.04, 0.14),
-    right: within(right, 0.04, 0.14),
-    top: within(top, 0.04, 0.12),
-  };
-}
-
-/** Type size of a text or table block, from its line height on the scan. */
-function fontStyle(b, m) {
-  if (b.type === "figure" || b.type === "formula") return "";
-  const key = typeKey(b);
-  const [lo, hi] = SIZE_RANGE[key] || [0.85, 1.25];
-  const h = lineHeight(b);
-  const scale = h && m.W ? ((h / m.W) * LINE_TO_FONT) / m.body : DEFAULT_SIZE[key] || 1;
-  return `font-size:${clampLen("11px", m.body * Math.min(hi, Math.max(lo, scale)), "44px")}`;
-}
-
-/** Space above a block or row: its gap to what's above it on the scan. */
-function gapStyle(top, prevBottom, m) {
-  if (top == null || prevBottom == null || !m.W) return "";
-  const gap = (top - prevBottom) / m.W;
-  return `margin-top:${gap > 0 ? clampLen("2px", gap, "56px") : "2px"}`;
-}
-
-/**
- * Group blocks that sit side by side on the scan (a logo beside a motto, a
- * reference number opposite a date) into rows. A block joins the current
- * row when it shares the row's height band and starts right of the last
- * block in it; anything else starts a new row.
- */
-function sideBySide(blocks) {
-  const rows = [];
+/** A plain layout for a page the server couldn't plan: blocks in order. */
+function fallbackPage(page, blocks) {
+  const W = 595.28;
+  const H = page.width && page.height ? (W * page.height) / page.width : 841.89;
+  const m = 56;
+  const bands = [];
   for (const b of blocks) {
-    const row = rows.at(-1);
-    const last = row?.at(-1);
-    if (row && b.bbox && last.bbox) {
-      const top = Math.min(...row.map((r) => r.bbox[1]));
-      const bottom = Math.max(...row.map((r) => r.bbox[3]));
-      const overlap = Math.min(bottom, b.bbox[3]) - Math.max(top, b.bbox[1]);
-      const shorter = Math.min(bottom - top, b.bbox[3] - b.bbox[1]);
-      if (overlap > 0.4 * shorter && b.bbox[0] >= last.bbox[2] - 2) {
-        row.push(b);
-        continue;
-      }
+    if (TEXT_TYPES.has(b.type)) {
+      bands.push({ space_before: 6, columns: [], item: { kind: "para", id: b.id, style: DEFAULT_STYLE,
+        align: b.align || "left", pitch: 17, keep_lines: false, text: b.text, rows: [],
+        left: 0, right: 0, first: 0, space_before: 0 } });
+    } else if (b.type === "table") {
+      const n = Math.max(1, ...b.rows.map((r) => r.length));
+      bands.push({ space_before: 6, columns: [], item: { kind: "table", id: b.id, style: DEFAULT_STYLE,
+        header_style: null, col_widths: Array(n).fill((W - 2 * m) / n), row_heights: b.rows.map(() => 18),
+        left: m, borders: true, padding: 2, pitch: 15, cells: [] } });
     }
-    rows.push([b]);
   }
-  return rows;
-}
-
-/** Figures keep the width and horizontal place they have on the scan. */
-function figureStyle(b, m) {
-  if (!b.bbox || !m.W) return "";
-  const width = (b.bbox[2] - b.bbox[0]) / m.W;
-  const indent = Math.max(0, b.bbox[0] / m.W - m.left);
-  return `width:${cqw(width)};margin-left:${cqw(indent)}`;
+  return { index: page.index, width: W, height: H, margins: [m, m, m, m], bands, floats: [] };
 }
 
 export function renderJob(root, jobId) {
@@ -140,9 +89,17 @@ export function renderJob(root, jobId) {
       return;
     }
     if (job.status === "done") {
+      // The layout first: it measures pages that haven't been, and the
+      // document fetched after it carries those measurements.
+      let layout = null;
+      renderPreparing(job);
+      try {
+        layout = await api.layout(jobId);
+      } catch { /* drawn without it: blocks in order */ }
+      if (disposed) return;
       try {
         const doc = await api.document(jobId);
-        if (!disposed) cleanupEditor = renderEditor(root, job, doc);
+        if (!disposed) cleanupEditor = renderEditor(root, job, doc, layout);
       } catch {
         toast(t("err.generic"));
       }
@@ -154,16 +111,26 @@ export function renderJob(root, jobId) {
 
   function renderMissing() {
     root.replaceChildren(h("section", { class: "wrap" }, h("div", { class: "processing" },
-      h("p", { class: "eyebrow muted2" }, t("status.error")),
+      h("p", { class: "label" }, t("status.error")),
       h("h1", { class: "h2" }, t("proc.missing")),
       h("p", { class: "note" }, h("a", { href: "#/" }, `← ${t("proc.back")}`)))));
+  }
+
+  // Documents read before pages were measured at OCR time are measured on
+  // first open: a few seconds a page.
+  function renderPreparing(job) {
+    progressEls = null;
+    root.replaceChildren(h("section", { class: "wrap" }, h("div", { class: "processing reveal" },
+      h("p", { class: "label" }, t("proc.layoutLabel")), h("h1", { class: "h2" }, job.filename),
+      h("div", { class: "bar indeterminate" }, h("span")),
+      h("p", { class: "meta" }, t("proc.layout")))));
   }
 
   let progressEls = null;
   function renderProgress(job) {
     if (!progressEls) {
       progressEls = {
-        eyebrow: h("p", { class: "eyebrow muted2" }),
+        eyebrow: h("p", { class: "label" }),
         bar: h("div", { class: "bar" }, h("span")),
         meta: h("p", { class: "meta" }),
         note: h("p", { class: "note" }),
@@ -202,9 +169,10 @@ export function renderJob(root, jobId) {
 // Editor
 // ════════════════════════════════════════════════════════════════════════
 
-function renderEditor(root, job, initialDoc) {
+function renderEditor(root, job, initialDoc, initialLayout) {
   const state = {
     doc: initialDoc,
+    layout: initialLayout?.pages || null,
     revision: initialDoc.revision,
     page: 0,
     activeId: null,
@@ -228,10 +196,9 @@ function renderEditor(root, job, initialDoc) {
   const redoBtn = iconButton("redo", t("ed.redo"), () => redo());
   const menuList = h("div", { class: "menu-list", role: "menu", hidden: true },
     FORMATS.map((f) => h("button", { type: "button", role: "menuitem", onclick: () => { closeMenu(); download(f); } },
-      h("span", {}, t(`fmt.${f}`)), h("span", { class: "meta" }, `.${f === "md" ? "md" : f}`))));
-  const moreBtn = h("button", { class: "pill pill-sm", type: "button", "aria-haspopup": "menu", "aria-expanded": "false",
+      h("span", {}, t(`fmt.${f}`)), h("span", { class: "meta" }, `.${f.split("-")[0]}`))));
+  const moreBtn = h("button", { class: "btn btn-sm", type: "button", "aria-haspopup": "menu", "aria-expanded": "false",
     onclick: (e) => { e.stopPropagation(); menuList.hidden ? openMenu() : closeMenu(); } }, t("ed.more"), icon("chevDown"));
-  moreBtn.querySelector("svg").style.width = "14px";
 
   function openMenu() { menuList.hidden = false; moreBtn.setAttribute("aria-expanded", "true"); }
   function closeMenu() { menuList.hidden = true; moreBtn.setAttribute("aria-expanded", "false"); }
@@ -247,175 +214,318 @@ function renderEditor(root, job, initialDoc) {
     h("div", { class: "tool-group" }, undoBtn, redoBtn,
       iconButton("reset", t("ed.revert"), () => revert())),
     h("span", { class: "divider", "aria-hidden": "true" }),
-    h("button", { class: "pill pill-sm", type: "button", onclick: copyAll }, icon("copy"), t("ed.copy")),
+    h("button", { class: "btn btn-sm", type: "button", onclick: copyAll }, icon("copy"), t("ed.copy")),
     h("div", { class: "menu" }, moreBtn, menuList),
-    h("button", { class: "pill pill-primary pill-sm", type: "button", onclick: () => download("docx") }, t("ed.download"))),
+    h("button", { class: "btn btn-primary btn-sm", type: "button", onclick: () => download("docx") }, t("ed.download"))),
     // Tools for the selected block live here rather than floating over the
     // text, so they never cover the block above.
     contextRow);
-  toolbar.querySelectorAll(".pill svg").forEach((s) => { s.style.width = "14px"; s.style.height = "14px"; });
 
   const banner = h("div", { class: "banner", hidden: true }, h("div", { class: "banner-inner" },
     h("span", {}, t("ed.conflict")),
-    h("button", { class: "pill pill-sm", type: "button", onclick: reloadLatest }, t("ed.reload"))));
+    h("button", { class: "btn btn-sm", type: "button", onclick: reloadLatest }, t("ed.reload"))));
 
-  // ── page viewer ─────────────────────────────────────────────────────
-  const pageImg = h("img", { alt: t("ed.original"), draggable: "false" });
-  const overlay = h("div", { class: "overlay" });
-  const stage = h("div", { class: "page-stage" }, pageImg, overlay);
-  const frame = h("div", { class: "page-frame" }, stage);
-  const pageLabel = h("span", { class: "meta" });
-  const prevBtn = iconButton("chevLeft", t("ed.prev"), () => showPage(state.page - 1));
-  const nextBtn = iconButton("chevRight", t("ed.next"), () => showPage(state.page + 1));
-  const thumbs = h("div", { class: "thumbs", hidden: pages.length < 2 },
-    pages.map((p) => h("button", { class: "thumb", type: "button", "aria-label": t("ed.pageLabel", { n: num(p.index + 1) }),
-      onclick: () => showPage(p.index) },
-    h("img", { src: p.image ? api.assetUrl(job.id, p.image) : "", alt: "", loading: "lazy" }))));
-  const viewer = h("aside", { class: "viewer" },
-    h("div", { class: "viewer-head" },
-      h("span", { class: "eyebrow muted2" }, t("ed.original")),
-      h("div", { class: "tool-group" }, prevBtn, pageLabel, nextBtn)),
-    frame, thumbs);
-
-  function showPage(index) {
-    if (index < 0 || index >= pages.length) return;
-    const changed = index !== state.page || !pageImg.src;
-    state.page = index;
-    const p = pages[index];
-    if (changed) pageImg.src = p.image ? api.assetUrl(job.id, p.image) : "";
-    pageLabel.textContent = t("ed.page", { n: num(index + 1), total: num(pages.length) });
-    prevBtn.disabled = index === 0;
-    nextBtn.disabled = index === pages.length - 1;
-    thumbs.querySelectorAll(".thumb").forEach((el, i) => el.setAttribute("aria-current", String(i === index)));
-    renderOverlay();
-  }
-
-  function renderOverlay() {
-    const p = pages[state.page];
-    if (!p || !p.width) return overlay.replaceChildren();
-    overlay.replaceChildren(...state.doc.blocks
-      .filter((b) => b.page === state.page && b.bbox)
-      .map((b) => {
-        const [x1, y1, x2, y2] = b.bbox;
-        const el = h("button", {
-          class: `ov${b.id === state.activeId ? " active" : ""}`, type: "button", dataset: { id: b.id, type: b.type },
-          style: `left:${(x1 / p.width) * 100}%;top:${(y1 / p.height) * 100}%;`
-            + `width:${((x2 - x1) / p.width) * 100}%;height:${((y2 - y1) / p.height) * 100}%`,
-          "aria-label": t(`type.${typeKey(b)}`),
-          onclick: () => focusBlock(b.id, true),
-        }, h("span", { class: "ov-tag" }, t(`type.${typeKey(b)}`)));
-        return el;
-      }));
-  }
-
-  // ── document ────────────────────────────────────────────────────────
-  const docEl = h("article", { class: "doc" });
+  // ── pages ───────────────────────────────────────────────────────────
+  // One row per page: the scan on the left and its rebuilt sheet on the
+  // right, at the same scale, so a single scroll moves both and every line
+  // sits level with the line it came from.
+  const docEl = h("div", { class: "pages" });
   const hint = h("p", { class: "doc-hint meta" }, t("ed.hint"));
-  const addBtn = h("button", { class: "pill pill-sm add-block", type: "button", onclick: () => addParagraph() },
+  const addBtn = h("button", { class: "btn btn-sm add-block", type: "button", onclick: () => addParagraph() },
     icon("plus"), t("ed.addParagraph"));
-  addBtn.querySelector("svg").style.width = "14px";
-  const docCol = h("div", {},
-    h("div", { class: "viewer-head" }, h("span", { class: "eyebrow muted2" }, t("ed.result"))),
-    docEl);
+  const scans = new Map();          // page index -> {el, inner, overlay}
 
   function blockIndex(id) { return state.doc.blocks.findIndex((b) => b.id === id); }
   function blockById(id) { return state.doc.blocks.find((b) => b.id === id); }
 
-  // One sheet per page, in reading order. Blocks moved onto another page
-  // follow their page number, so a run of the same page is one sheet.
-  function renderDoc() {
-    const sheets = [];
-    let run = null;
-    for (const b of state.doc.blocks) {
-      if (!run || b.page !== run.page) {
-        run = { page: b.page, blocks: [] };
-        sheets.push(run);
-      }
-      run.blocks.push(b);
+  function pageLayout(index) {
+    return state.layout?.[index] || fallbackPage(pages[index] || {}, state.doc.blocks.filter((b) => b.page === index));
+  }
+
+  /** pt -> cqw for a sheet ``W`` points wide. */
+  function unit(W) {
+    return (v) => `${((v / W) * 100).toFixed(4)}cqw`;
+  }
+
+  /** Where the scan sits on the sheet: centred when it was fitted by height. */
+  function scanPlacement(page, lp) {
+    const dpi = page.dpi || (page.width ? (page.width * 72) / lp.width : 72);
+    const w = ((page.width || 0) * 72) / dpi;
+    return { k: 72 / dpi, ox: Math.max(0, (lp.width - w) / 2), w, h: ((page.height || 0) * 72) / dpi };
+  }
+
+  function scanPanel(index, lp) {
+    let s = scans.get(index);
+    const page = pages[index] || {};
+    const u = unit(lp.width);
+    const at = scanPlacement(page, lp);
+    if (!s) {
+      const img = h("img", { src: page.image ? api.assetUrl(job.id, page.image) : "", alt: t("ed.original"),
+        draggable: "false", loading: index > 1 ? "lazy" : "eager" });
+      const overlay = h("div", { class: "overlay" });
+      const inner = h("div", { class: "scan-inner" }, img, overlay);
+      s = { el: h("div", { class: "scan" }, inner), inner, img, overlay };
+      scans.set(index, s);
     }
-    const children = sheets.map((s) => renderSheet(s.page, s.blocks));
-    if (!state.doc.blocks.length) children.push(h("p", { class: "empty" }, t("ed.empty")));
-    docEl.replaceChildren(...children, h("div", { class: "doc-foot" }, addBtn, hint));
-    renderOverlay();
+    s.inner.style.height = u(lp.height);
+    s.img.style.cssText = `left:${u(at.ox)};width:${u(at.w)};height:${u(at.h)}`;
+    s.overlay.replaceChildren(...state.doc.blocks
+      .filter((b) => b.page === index && b.bbox)
+      .map((b) => {
+        const [x1, y1, x2, y2] = b.bbox;
+        return h("button", {
+          class: `ov${b.id === state.activeId ? " active" : ""}`, type: "button", dataset: { id: b.id, type: b.type },
+          style: `left:${u(at.ox + x1 * at.k)};top:${u(y1 * at.k)};width:${u((x2 - x1) * at.k)};height:${u((y2 - y1) * at.k)}`,
+          "aria-label": t(`type.${typeKey(b)}`),
+          onclick: () => focusBlock(b.id, true),
+        }, h("span", { class: "ov-tag" }, t(`type.${typeKey(b)}`)));
+      }));
+    return s.el;
+  }
+
+  // Rendered pages; mutate() and saves redraw them.
+  function renderDoc() {
+    const rows = pages.map((page, i) => {
+      const lp = pageLayout(i);
+      const label = pages.length > 1 ? t("ed.page", { n: num(i + 1), total: num(pages.length) }) : null;
+      return h("section", { class: "page-row", dataset: { page: i },
+        "aria-label": t("ed.pageLabel", { n: num(i + 1) }) },
+      h("div", { class: "page-col" }, label ? h("p", { class: "label page-label" }, label) : null, scanPanel(i, lp)),
+      h("div", { class: "page-col" }, label ? h("p", { class: "label page-label" }, " ") : null, renderSheet(i, lp)));
+    });
+    if (!state.doc.blocks.length) rows.push(h("p", { class: "empty" }, t("ed.empty")));
+    docEl.replaceChildren(...rows, h("div", { class: "doc-foot" }, addBtn, hint));
     renderContext();
   }
 
-  function renderSheet(pageIndex, blocks) {
-    const page = pages[pageIndex] || {};
-    const m = pageMetrics(page, blocks);
-    const body = h("div", {
-      class: "sheet-body",
-      style: `padding:${cqw(m.top)} ${cqw(m.right)} ${cqw(0.09)} ${cqw(m.left)}`,
-    });
-    let prevBottom = null;
-    for (const row of sideBySide(blocks)) {
-      const top = row[0].bbox ? Math.min(...row.map((b) => b.bbox[1])) : null;
-      const gap = gapStyle(top, prevBottom, m);
-      if (row.length === 1) {
-        body.append(renderBlock(row[0], [gap, fontStyle(row[0], m)].join(";"), m));
-      } else {
-        // Pictures keep their scan width and place. Text gets the whole span
-        // up to the next block, since the sheet's font never matches the
-        // scan's exactly; left-aligned text still starts where it did.
-        const right = m.W * (1 - m.right);
-        let x = m.left * m.W;
-        body.append(h("div", { class: "block-row", style: gap }, row.map((b, i) => {
-          const next = row[i + 1];
-          const picture = !TEXT_TYPES.has(b.type) && b.type !== "table";
-          const start = picture || (b.align || "left") === "left" ? Math.max(x, b.bbox[0]) : x;
-          const end = picture ? b.bbox[2] : Math.max(b.bbox[2], next ? next.bbox[0] : right);
-          const style = [fontStyle(b, m), `width:${cqw((end - start) / m.W)}`,
-            `margin-left:${cqw((start - x) / m.W)}`].join(";");
-          x = end;
-          return renderBlock(b, style, m, true);
-        })));
+  function renderSheet(index, lp) {
+    const u = unit(lp.width);
+    const [ml, mr, mt] = lp.margins;
+    const contentW = lp.width - ml - mr;
+    const placed = new Map();       // block id -> its top-level element in the flow
+    const flow = h("div", { class: "flow", style: `padding:${u(mt)} ${u(mr)} 0 ${u(ml)}` });
+
+    // A tall paragraph can be planned as parts (its top lines beside a
+    // letterhead, the rest below): each part draws its own lines, and the
+    // block is unedited while all its parts' lines still make its text.
+    const scanned = new Map();      // block id -> its parts' lines, joined
+    for (const band of lp.bands) {
+      for (const it of band.item ? [band.item] : band.columns.flatMap((c) => c.items)) {
+        if (it.kind === "para" && it.keep_lines) {
+          scanned.set(it.id, (scanned.get(it.id) || "") + squash(it.rows.map((r) => r.text).join("")));
+        }
       }
-      prevBottom = row[0].bbox ? Math.max(...row.map((b) => b.bbox[3])) : null;
     }
-    const sheet = h("div", {
-      class: "sheet",
-      style: page.width && page.height ? `aspect-ratio:${page.width} / ${page.height}` : null,
-    }, body);
-    return h("section", { class: "sheet-wrap", "aria-label": t("ed.pageLabel", { n: num(pageIndex + 1) }) },
-      pages.length > 1 ? h("p", { class: "sheet-label eyebrow" }, t("ed.pageLabel", { n: num(pageIndex + 1) })) : null,
-      sheet);
+    const drawn = new Set();
+
+    function item(it, width, offset) {
+      const b = blockById(it.id);
+      if (!b || b.page !== index) return null;      // deleted, merged or moved since the plan
+      if (it.kind === "table") return b.type === "table" ? renderTable(b, it, u, offset) : null;
+      if (!TEXT_TYPES.has(b.type)) return null;
+      const unedited = it.keep_lines && it.rows.length && scanned.get(b.id) === squash(b.text);
+      if (!unedited && drawn.has(b.id)) return null;   // an edited block reflows once, in its first part
+      drawn.add(b.id);
+      return renderPara(b, it, u, width, unedited);
+    }
+
+    for (const band of lp.bands) {
+      let el = null;
+      const ids = [];
+      if (band.item) {
+        el = item(band.item, contentW, ml);
+        ids.push(band.item.id);
+      } else {
+        let x = ml;
+        const cols = band.columns.map((c) => {
+          const col = h("div", { class: "col", style: `margin-left:${u(c.x1 - x)};width:${u(c.x2 - c.x1)}` });
+          x = c.x2;
+          for (const it of c.items) {
+            const child = item(it, c.x2 - c.x1, c.x1);
+            if (child) {
+              child.style.marginTop = u(it.space_before);
+              col.append(child);
+            }
+            ids.push(it.id);
+          }
+          return col;
+        });
+        el = h("div", { class: "cols" }, cols);
+      }
+      if (!el) continue;
+      el.style.marginTop = u(band.space_before);
+      flow.append(el);
+      ids.forEach((id) => placed.set(id, el));
+    }
+
+    // Blocks the plan doesn't have yet (just added, split or moved here):
+    // in the flow right after the block before them, until the next plan.
+    const body = { style: { ...DEFAULT_STYLE, font: pages[index]?.body_font || "sans",
+      size: pages[index]?.body_size || DEFAULT_STYLE.size } };
+    let prev = null;
+    for (const b of state.doc.blocks.filter((x) => x.page === index)) {
+      if (!placed.has(b.id) && (TEXT_TYPES.has(b.type) || b.type === "table")) {
+        const it = b.type === "table" ? fallbackPage(pages[index] || {}, [b]).bands[0].item
+          : { kind: "para", id: b.id, style: body.style, align: b.align || "left",
+            pitch: body.style.size * 1.75, keep_lines: false, text: b.text, rows: [], left: 0, right: 0, first: 0 };
+        const el = item(it, contentW, ml);
+        if (el) {
+          const after = prev && placed.get(prev.id);
+          if (after) after.after(el); else flow.prepend(el);
+          placed.set(b.id, el);
+        }
+      }
+      if (placed.has(b.id)) prev = b;
+    }
+
+    const floats = h("div", { class: "floats", "aria-hidden": "true" }, lp.floats.map((f) => {
+      const fig = f.block_id && blockById(f.block_id);
+      if (f.block_id && !fig) return null;          // a deleted logo
+      return h("img", {
+        class: `float${fig ? " float-fig" : ""}${fig && fig.id === state.activeId ? " active" : ""}`,
+        src: api.assetUrl(job.id, f.image), alt: "", loading: "lazy", draggable: "false",
+        dataset: fig ? { id: fig.id } : {},
+        style: `left:${u(f.x)};top:${u(f.y)};width:${u(f.width)};height:${u(f.height)}`,
+        onclick: fig ? () => focusBlock(fig.id) : null,
+      });
+    }).filter(Boolean));
+
+    return h("div", { class: "sheet" },
+      h("div", { class: "sheet-inner", style: `min-height:${u(lp.height)}` }, floats, flow));
   }
 
-  function renderBlock(b, style, m, inRow = false) {
+  // A paragraph keeps the scan's lines (each line's character scale too)
+  // until it is edited; while you type, and after, it reflows like Word.
+  function renderPara(b, it, u, width, keep) {
+    const st = it.style || DEFAULT_STYLE;
     const key = typeKey(b);
+    const align = b.align && b.align !== "left" && it.align !== b.align ? b.align : it.align || b.align || "left";
     const el = h("div", {
-      class: `block b-${key} align-${b.align || "left"}${b.id === state.activeId ? " active" : ""}`,
+      class: `block para b-${key}${b.id === state.activeId ? " active" : ""}`,
       dataset: { id: b.id },
-      style,
+      style: `${fontCss(st, u)};line-height:${u(it.pitch)}`,
     });
-    // The block type is a tag shown on hover and selection, like the boxes
-    // on the scan, so the sheet itself reads as the document.
-    const label = h("span", { class: "block-tag", "aria-hidden": "true" }, t(`type.${key}`));
-    const body = h("div", { class: "block-body" });
+    const tag = h("span", { class: "block-tag", "aria-hidden": "true" }, t(`type.${key}`));
+    const ed = editable(b.text, (text) => { b.text = text; });
+    ed.dataset.placeholder = t("ed.placeholder");
+    ed.style.cssText = `padding-left:${u(it.left)};padding-right:${u(it.right)};text-indent:${u(it.first)};`
+      + `text-align:${align}`;
+    el.append(tag, ed);
 
-    if (TEXT_TYPES.has(b.type)) {
-      const ed = editable(b.text, (text) => { b.text = text; });
-      ed.dataset.placeholder = t("ed.placeholder");
-      body.append(ed);
-    } else if (b.type === "table") {
-      if (b.rows.length === 1 && b.rows[0].length === 1 && b.image) {
-        body.append(h("figure", { class: "tbl-image", style: inRow ? "width:100%" : figureStyle(b, m) },
-          h("img", { src: api.assetUrl(job.id, b.image), alt: "", loading: "lazy" })));
-      }
-      body.append(h("div", { class: "tbl-wrap" }, h("table", {}, h("tbody", {},
-        b.rows.map((row, r) => h("tr", {}, row.map((cell, c) => {
-          const td = h("td");
-          const ed = editable(cell, (text) => { b.rows[r][c] = text; });
-          ed.addEventListener("focus", () => { state.cell = { r, c }; });
-          td.append(ed);
-          return td;
-        })))))));
-    } else {
-      body.append(h("figure", { style: inRow ? "width:100%" : figureStyle(b, m) },
-        h("img", { src: api.assetUrl(job.id, b.image), alt: t(`type.${key}`), loading: "lazy" })));
-      body.tabIndex = 0;
+    if (keep) {
+      const view = h("div", { class: "para-view", tabindex: "0" }, it.rows.map((r, i) => {
+        const s = Math.max(0.3, (r.scale || 100) / 100);
+        const indent = it.left + (i === 0 ? it.first : 0);
+        const room = Math.max(1, width - indent - it.right);
+        const last = i === it.rows.length - 1;
+        const rowAlign = align === "justify" ? (last ? "left" : "justify") : align;
+        return h("div", { class: "line", style: `height:${u(it.pitch)};margin-left:${u(indent)};`
+          + `width:${u(room / s)};transform:scaleX(${s});text-align:${rowAlign};`
+          + `text-align-last:${rowAlign}` }, r.text);
+      }));
+      ed.hidden = true;
+      // Editing starts where you click: the caret goes to the same letter
+      // in the block's text (whitespace aside: lines join without breaks).
+      view.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        startEditing(view, ed, b, it, caretInView(view, e.clientX, e.clientY));
+      });
+      view.addEventListener("focus", () => setActive(b.id));
+      view.addEventListener("keydown", (e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey || e.key === "Tab" || e.key === "Shift") return;
+        if (e.key === "Enter") e.preventDefault();
+        startEditing(view, ed, b, it, null);
+      });
+      const original = b.text;
+      ed.addEventListener("focusout", () => {
+        // Nothing changed: back to the scan's lines.
+        if (squash(b.text) === squash(original)) {
+          ed.hidden = true;
+          view.hidden = false;
+        }
+      });
+      el.append(view);
     }
-    el.append(label, body);
+    el.addEventListener("focusin", () => setActive(b.id));
+    el.addEventListener("click", () => setActive(b.id));
+    return el;
+  }
+
+  /** Letters (not counting whitespace) before the point clicked in a view. */
+  function caretInView(view, x, y) {
+    const pos = document.caretPositionFromPoint?.(x, y);
+    const range = pos ? null : document.caretRangeFromPoint?.(x, y);
+    const node = pos ? pos.offsetNode : range?.startContainer;
+    const offset = pos ? pos.offset : range?.startOffset;
+    const line = node && (node.nodeType === 3 ? node.parentElement : node)?.closest(".line");
+    if (!line || !view.contains(line)) return null;
+    let count = 0;
+    for (const l of view.querySelectorAll(".line")) {
+      if (l === line) return count + squash(l.textContent.slice(0, offset)).length;
+      count += squash(l.textContent).length;
+    }
+    return count;
+  }
+
+  function startEditing(view, ed, b, it, letters) {
+    view.hidden = true;
+    ed.hidden = false;
+    ed.focus();
+    const text = ed.firstChild;
+    let at = text ? text.length : 0;
+    if (letters != null && text) {
+      let seen = 0;
+      at = 0;
+      while (at < text.length && seen < letters) {
+        if (!/\s/.test(text.data[at])) seen++;
+        at++;
+      }
+    }
+    const sel = window.getSelection();
+    const r = document.createRange();
+    if (text) r.setStart(text, at); else r.setStart(ed, 0);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+
+  // A table with the scan's column widths and exact row heights; each
+  // cell's text keeps its alignment and is narrowed to fit, as in Word.
+  function renderTable(b, it, u, offset) {
+    const nc = Math.max(1, ...b.rows.map((r) => r.length));
+    let widths = it.col_widths || [];
+    if (widths.length !== nc) widths = Array(nc).fill(sum(widths.length ? widths : [400]) / nc);
+    const med = median(it.row_heights || []) || 18;
+    const heights = b.rows.map((_, i) => (it.row_heights || [])[i] ?? med);
+    const pad = it.padding ?? 2;
+    const rule = it.borders ? `1px solid ${TABLE_RULE}` : "0";
+    const el = h("div", {
+      class: `block tbl b-table${b.id === state.activeId ? " active" : ""}`,
+      dataset: { id: b.id },
+      style: `margin-left:${u(Math.max(0, it.left - offset))};width:${u(sum(widths))}`,
+    });
+    const table = h("table", { style: `width:${u(sum(widths))}` },
+      h("colgroup", {}, widths.map((w) => h("col", { style: `width:${u(w)}` }))),
+      h("tbody", {}, b.rows.map((row, r) => {
+        const header = r === 0 && it.header_style;
+        const st = header ? it.header_style : it.style || DEFAULT_STYLE;
+        const natural = (header ? it.header_pitch : it.pitch) || st.size * 1.4;
+        return h("tr", { style: `height:${u(heights[r])}` }, Array.from({ length: nc }, (_, c) => {
+          const meta = it.cells?.[r]?.[c] || { align: "left", scale: 100, valign: "center" };
+          const text = row[c] ?? "";
+          const n = Math.max(1, text.split("\n").length);
+          const pitch = Math.max(st.size * 1.05, Math.min(natural, heights[r] / n));
+          const s = Math.max(0.3, (meta.scale || 100) / 100);
+          const room = Math.max(1, widths[c] - 2 * pad);
+          const ed = editable(text, (v) => { b.rows[r][c] = v; });
+          ed.style.cssText = `width:${u(room / s)};transform:scaleX(${s});text-align:${meta.align};`
+            + `line-height:${u(pitch)}`;
+          ed.addEventListener("focus", () => { state.cell = { r, c }; });
+          return h("td", { style: `${fontCss(st, u)};padding:0 ${u(pad)};border:${rule};`
+            + `vertical-align:${meta.valign === "center" ? "middle" : meta.valign}` }, ed);
+        }));
+      })));
+    el.append(h("span", { class: "block-tag", "aria-hidden": "true" }, t("type.table")), table);
     el.addEventListener("focusin", () => setActive(b.id));
     el.addEventListener("click", () => setActive(b.id));
     return el;
@@ -491,37 +601,31 @@ function renderEditor(root, job, initialDoc) {
   function renderContext() {
     const b = state.activeId && blockById(state.activeId);
     contextRow.replaceChildren(h("div", { class: "context-inner" }, ...(b
-      ? [h("span", { class: "eyebrow muted2" }, t(`type.${typeKey(b)}`)), renderTools(b)]
+      ? [h("span", { class: "label" }, t(`type.${typeKey(b)}`)), renderTools(b)]
       : [h("span", { class: "meta muted2" }, t("ed.hint"))])));
   }
 
+  // The selected block is marked on the sheet and on the scan beside it.
   function setActive(id) {
     if (state.activeId === id) return;
-    docEl.querySelector(".block.active")?.classList.remove("active");
+    docEl.querySelectorAll(".active").forEach((el) => el.classList.remove("active"));
     state.activeId = id;
-    const el = docEl.querySelector(`.block[data-id="${CSS.escape(id)}"]`);
     const b = blockById(id);
-    if (el && b) el.classList.add("active");
+    if (b) {
+      state.page = b.page;
+      docEl.querySelectorAll(`[data-id="${CSS.escape(id)}"]`).forEach((el) => el.classList.add("active"));
+    }
     renderContext();
-    if (b && b.page !== state.page) showPage(b.page);
-    else renderOverlay();
-    const ov = overlay.querySelector(`.ov[data-id="${CSS.escape(id)}"]`);
-    if (ov) scrollIntoFrame(ov);
-  }
-
-  function scrollIntoFrame(ov) {
-    const f = frame.getBoundingClientRect();
-    const r = ov.getBoundingClientRect();
-    if (r.top < f.top || r.bottom > f.bottom) frame.scrollTop += r.top - f.top - f.height / 3;
   }
 
   function focusBlock(id, fromOverlay = false) {
     setActive(id);
-    const el = docEl.querySelector(`.block[data-id="${CSS.escape(id)}"]`);
+    const el = docEl.querySelector(`.block[data-id="${CSS.escape(id)}"], .float-fig[data-id="${CSS.escape(id)}"]`);
     if (!el) return;
-    const target = el.querySelector(".editable") || el.querySelector(".block-body");
-    target?.focus({ preventScroll: fromOverlay });
-    if (fromOverlay) el.scrollIntoView({ block: "center" });
+    if (fromOverlay) el.scrollIntoView({ block: "nearest" });
+    const view = el.querySelector(".para-view:not([hidden])");
+    const target = view || el.querySelector(".editable:not([hidden])");
+    target?.focus({ preventScroll: true });
   }
 
   // ── edits ───────────────────────────────────────────────────────────
@@ -680,6 +784,7 @@ function renderEditor(root, job, initialDoc) {
       state.activeId = null;
       renderDoc();
       updateHistoryButtons();
+      scheduleLayout();
       toast(t("ed.reverted"));
     } catch {
       toast(t("err.generic"));
@@ -712,6 +817,7 @@ function renderEditor(root, job, initialDoc) {
       const res = await api.saveDocument(job.id, payload, state.revision, keepalive);
       state.revision = res.revision;
       setSaveState(state.dirty ? "unsaved" : "saved");
+      if (!keepalive) scheduleLayout();
     } catch (e) {
       if (e.status === 409) {
         state.conflict = true;
@@ -730,6 +836,38 @@ function renderEditor(root, job, initialDoc) {
       state.saving = false;
     }
   }
+
+  // After a save, ask for the plan again (what the .docx now looks like)
+  // and redraw -- but never under the caret: a block being typed in is
+  // redrawn once it loses focus.
+  let layoutTimer = null;
+  let layoutPending = false;
+  function scheduleLayout() {
+    clearTimeout(layoutTimer);
+    layoutTimer = setTimeout(async () => {
+      try {
+        const res = await api.layout(job.id);
+        if (res.revision !== state.revision || state.dirty) return;   // a newer save will follow
+        state.layout = res.pages;
+        if (typing()) layoutPending = true;
+        else renderDoc();
+      } catch { /* keep the last plan */ }
+    }, 250);
+  }
+  function typing() {
+    const a = document.activeElement;
+    return !!(a && a.classList?.contains("editable") && docEl.contains(a));
+  }
+  docEl.addEventListener("focusout", () => {
+    setTimeout(() => {
+      if (layoutPending && !typing()) {
+        layoutPending = false;
+        const active = state.activeId;
+        renderDoc();
+        if (active) docEl.querySelectorAll(`[data-id="${CSS.escape(active)}"]`).forEach((el) => el.classList.add("active"));
+      }
+    }, 0);
+  });
 
   async function flushSave() {
     clearTimeout(state.saveTimer);
@@ -750,6 +888,7 @@ function renderEditor(root, job, initialDoc) {
       setSaveState("saved");
       updateHistoryButtons();
       renderDoc();
+      scheduleLayout();
     } catch {
       toast(t("err.generic"));
     }
@@ -770,7 +909,8 @@ function renderEditor(root, job, initialDoc) {
 
   async function download(format) {
     await flushSave();
-    const a = h("a", { href: api.exportUrl(job.id, format), download: "" });
+    const [fmt, layout] = format.split("-");
+    const a = h("a", { href: api.exportUrl(job.id, fmt, layout), download: "" });
     document.body.append(a);
     a.click();
     a.remove();
@@ -795,9 +935,11 @@ function renderEditor(root, job, initialDoc) {
 
   // ── mount ───────────────────────────────────────────────────────────
   root.replaceChildren(toolbar, banner,
-    h("div", { class: "wrap" }, h("div", { class: "split reveal" }, viewer, docCol)));
+    h("div", { class: "wrap editor reveal" },
+      h("div", { class: "page-row page-heads" },
+        h("p", { class: "label" }, t("ed.original")), h("p", { class: "label" }, t("ed.result"))),
+      docEl));
   renderDoc();
-  showPage(state.page);
   updateHistoryButtons();
 
   return () => {

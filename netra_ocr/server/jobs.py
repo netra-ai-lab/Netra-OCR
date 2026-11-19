@@ -30,6 +30,48 @@ from .settings import Settings
 logger = logging.getLogger(__name__)
 
 _JOB_ID = re.compile(r"^[0-9a-f]{32}$")
+_PAGE_APPEARANCE = ("dpi", "size_pt", "body_font", "body_size", "overlays")
+
+
+def _keep_page_appearance(data: dict, current: Document) -> dict:
+    """Carry measured page appearance over an editor save.
+
+    The editor sends the whole document back; one it loaded before the
+    pages were measured would otherwise drop the measurements.
+    """
+    pages = data.get("pages") if isinstance(data, dict) else None
+    if not isinstance(pages, list) or len(pages) != len(current.pages):
+        return data
+    merged = []
+    for new, old in zip(pages, current.pages):
+        if isinstance(new, dict):
+            new = {**{k: old[k] for k in _PAGE_APPEARANCE if k in old}, **new}
+        merged.append(new)
+    return {**data, "pages": merged, "blocks": _keep_block_appearance(data.get("blocks"), current)}
+
+
+_BLOCK_APPEARANCE = ("style", "header_style")
+_LINE_APPEARANCE = ("ink", "scale")
+
+
+def _keep_block_appearance(blocks, current: Document):
+    """The same for blocks: a block's measured style, and its lines' ink
+    boxes and character scale while its lines are the ones measured."""
+    if not isinstance(blocks, list):
+        return blocks
+    known = {b.get("id"): b for b in current.blocks}
+    out = []
+    for new in blocks:
+        old = known.get(new.get("id")) if isinstance(new, dict) else None
+        if old is not None:
+            new = {**{k: old[k] for k in _BLOCK_APPEARANCE if k in old}, **new}
+            lines, old_lines = new.get("lines"), old.get("lines")
+            if (isinstance(lines, list) and isinstance(old_lines, list) and len(lines) == len(old_lines)
+                    and all(isinstance(a, dict) and a.get("bbox") == b.get("bbox") for a, b in zip(lines, old_lines))):
+                new["lines"] = [{**{k: b[k] for k in _LINE_APPEARANCE if k in b}, **a}
+                                for a, b in zip(lines, old_lines)]
+        out.append(new)
+    return out
 
 
 @dataclass
@@ -172,6 +214,7 @@ class JobManager:
             current = self.document(job_id)
             if expected_revision is not None and expected_revision != current.revision:
                 raise RevisionConflict(current)
+            data = _keep_page_appearance(data, current)
             doc = Document.from_dict(data, current.assets)
             doc.revision = current.revision + 1
             doc.save(self._dir(job_id))
@@ -193,6 +236,18 @@ class JobManager:
                 self._write_meta(job)
             return doc
 
+    def enrich(self, job_id: str) -> Document:
+        """The document with each page's look measured (fonts, sizes,
+        colours, seals; see ``netra_ocr.reconstruct``), for the original-
+        layout Word export. Measured once, on first use, and stored."""
+        from ..reconstruct import enrich_document, is_enriched
+        with self._doc_lock(job_id):
+            doc = self.document(job_id)
+            if not all(is_enriched(p) for p in doc.pages):
+                enrich_document(doc)
+                doc.save(self._dir(job_id))      # not an edit: the revision stays
+            return doc
+
     def asset_path(self, job_id: str, asset_id: str) -> Optional[str]:
         self.get(job_id)
         return self.document(job_id).assets.path(asset_id)
@@ -202,8 +257,12 @@ class JobManager:
         from ..ocr_engine import KhmerOCRPipeline
         key = (options.detector, options.layout, options.decoder, options.conf)
         if key not in self._pipelines:
+            # reconstruct: measure each page's look while the full-quality
+            # page is in memory, so the editor and the Word export start
+            # from the same layout without a second pass over a JPEG.
             self._pipelines[key] = KhmerOCRPipeline(detector=options.detector, conf=options.conf,
-                                                    decoder=options.decoder, layout=options.layout)
+                                                    decoder=options.decoder, layout=options.layout,
+                                                    reconstruct=True)
         return self._pipelines[key]
 
     def warmup(self) -> None:
