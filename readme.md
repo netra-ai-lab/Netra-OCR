@@ -11,7 +11,7 @@
   <a href="https://huggingface.co/Netra-Lab/Netra-OCR"><b>Model Download</b></a> |
   <a href="https://huggingface.co/Netra-Lab"><b>Dataset Download</b></a> |
   <a href="https://huggingface.co/spaces/Darayut/Khmer-Text-Recognition"><b>Inference Space</b></a> |
-  <a href="https://github.com/netra-ai-lab/Netra-OCR/blob/master/Paper/A%20Squeeze-and-Excitation%20Transformer%20Network%20for%20Khmer%20Optical%20Character%20Recognition.pdf"><b>Paper</b></a>
+  <a href="https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/paper/A%20Squeeze-and-Excitation%20Transformer%20Network%20for%20Khmer%20Optical%20Character%20Recognition.pdf"><b>Paper</b></a>
 </p>
 
 <p align="center">
@@ -311,7 +311,7 @@ INFO - Done in 1.1 min, peak GPU memory 2.4 GB. Best validation CER 1.01% (epoch
 Netra-OCR's code is released under the MIT License (see [LICENSE](https://github.com/netra-ai-lab/Netra-OCR/blob/master/LICENSE)).
 - **AGPL-3.0 model:** the YOLO text-line detector's weights (`lines/`) were trained with Ultralytics YOLO and are AGPL-3.0. They're used by the default `yolo` detector and are part of the Docker image. Read [THIRD_PARTY_LICENSES.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/THIRD_PARTY_LICENSES.md) before redistributing the image or running a modified version as a public service. The app runs no AGPL code; `ultralytics` and `doclayout-yolo` are used only by the training code in `training/`. The recognizer, the layout model (Apache-2.0) and the `legacy` and `tesseract` detectors carry no AGPL terms.
 - **Training data:** the recognition weights were trained partly on [SoyVitou/KhmerSynthetic1M](https://huggingface.co/datasets/SoyVitou/KhmerSynthetic1M), which is licensed for research and academic use only. Check that licence before any commercial use of the weights.
-- **Fonts:** Kantumruy Pro, used in the web app, is under the SIL Open Font License 1.1.
+- **Fonts:** Figtree and Kantumruy Pro, used in the web app, are under the SIL Open Font License 1.1.
 
 ## References
 
