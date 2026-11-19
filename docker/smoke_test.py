@@ -53,9 +53,9 @@ doc = KhmerOCRPipeline(layout=True, reconstruct=True).process_document(png.getva
 assert doc.pages[0].get("size_pt") and any(b.get("style") for b in doc.blocks), "page not measured"
 layout = PL.to_dict(PL.build_document(doc)[0])
 assert layout["bands"], "empty layout"
+assert F.HAS_SHAPING, "Pillow can't shape Khmer text (libraqm missing): pages would be measured roughly"
 data, _, _ = export(doc, "docx", "smoke", layout="original")
-print(f"measured: {len(layout['bands'])} bands, original-layout docx {len(data)} bytes, "
-      f"text shaping {'on' if F.HAS_SHAPING else 'OFF'}")
+print(f"measured: {len(layout['bands'])} bands, original-layout docx {len(data)} bytes")
 
 from netra_ocr.server.app import create_app  # noqa: E402
 
