@@ -1,5 +1,5 @@
 // UI strings. The interface is English; documents themselves are Khmer and
-// English and render in Kantumruy Pro either way.
+// English and render in the UI stack either way (Figtree for Latin, Kantumruy Pro for Khmer).
 const STRINGS = {
   "nav.documents": "Documents",
   "nav.api": "API",
@@ -49,6 +49,8 @@ const STRINGS = {
   "status.error": "Failed",
 
   "proc.eyebrow": "Reading",
+  "proc.layoutLabel": "Preparing pages",
+  "proc.layout": "Laying out each page the way the Word file builds it. This takes a few seconds a page, once.",
   "proc.page": "Page {done} of {total}",
   "proc.queued": "Waiting for the previous document to finish",
   "proc.starting": "Starting…",

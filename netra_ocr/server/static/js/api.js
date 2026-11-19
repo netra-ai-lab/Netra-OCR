@@ -48,6 +48,7 @@ export const api = {
   deleteJob: (id) => request("DELETE", `/v1/jobs/${id}`),
   upload: (form) => request("POST", "/v1/ocr", { body: form }),
   document: (id) => request("GET", `/v1/jobs/${id}/document`),
+  layout: (id) => request("GET", `/v1/jobs/${id}/layout`),
   saveDocument: (id, doc, revision, keepalive = false) => request("PUT", `/v1/jobs/${id}/document`, {
     body: JSON.stringify(doc), keepalive,
     headers: { "Content-Type": "application/json", "If-Match": `"${revision}"` },

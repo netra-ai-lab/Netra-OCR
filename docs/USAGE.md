@@ -78,12 +78,18 @@ Word output rebuilds each page as it looked, not just what it says. The
 - side-by-side blocks, such as a ministry letterhead opposite the kingdom motto;
 - ruled tables from their drawn grid, even when the lines are faint: exact column
   widths and row heights, borders, the header row's own font, and each cell's text
-  aligned as on the scan (barcodes in cells are kept as pictures, not read as text);
+  aligned as on the scan (barcodes in cells are kept as pictures, not read as text).
+  A text line the detector ran across a column rule is cut at the rule and each
+  cell read on its own;
 - everything the models don't read (seals, signatures, ruled lines, ticks), cut out
-  as transparent pictures and placed where they were.
+  as transparent pictures and placed where they were. Long rules and page frames
+  are thin pictures of their own, and a "figure" the layout model drew around text
+  keeps only its picture, so no picture ever carries a whole page of text. Leftover
+  edges of recognized letters are not cut out (they'd float on the editable text);
+  underlines, list dashes and a seal's red over the text are.
 
-The `.docx` keeps real, editable text. Pictures float at their place on the page,
-and the fonts used are embedded, so the page renders as intended without them
+The `.docx` keeps real, editable text. Pictures float behind the text at their
+place on the page, and the fonts used are embedded, so the page renders as intended without them
 installed. A block you edit is re-flowed instead of keeping the scan's line breaks.
 
 ```python
@@ -99,7 +105,9 @@ On the command line, `--layout` with a `.docx` output rebuilds the page. Use
 Measuring takes a few seconds per page on a CPU. Documents made without
 `reconstruct=True` are measured when first exported, from their stored page images.
 `python scripts/reconstruct_eval.py` rebuilds every sample in `test_images/` and writes
-side-by-side sheets: scan, plan preview, and LibreOffice's rendering of the `.docx`.
+side-by-side sheets: scan, plan preview, and LibreOffice's rendering of the `.docx`
+(`--server` measures from the stored page image, as the web app did before it measured pages
+while reading them; documents from that version are still measured that way).
 
 ### Output formats
 
@@ -166,6 +174,7 @@ What it does:
 - **Input:** a scan, a phone photo or a multi-page PDF (JPG, PNG, TIFF, BMP, WebP, PDF; up to 50 MB and 100 pages by default).
 - **Layout analysis:** [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO) finds headings, paragraphs, tables, figures, captions, page headers and footers, and the reading order. Netra's line detector and recognizer then read the Khmer and English text.
 - **Editable result:** a structured document, not a text dump. Fix misreads in the browser, with each block linked to its region on the page. Change a block's type, alignment and order, split or merge blocks, and edit table cells. Edits autosave, with undo.
+- **What you edit is what you download:** each page is drawn from the same layout the original-layout Word export follows (`GET /v1/jobs/{id}/layout`): the measured fonts and sizes, the scan's line breaks, tables with their column widths and row heights, and logos and seals in place. Every page sits beside its scan at the same scale, so one scroll moves both. Pages are measured while they are read; documents read by an older version are measured the first time they are opened.
 - **Export:** a Word document that rebuilds the original page (fonts, sizes, colours, placement, seals and signatures; see "Rebuilding the original page"), or a clean re-flowed one (real heading styles, native tables, per-page headers and footers), plus HTML, Markdown, JSON (blocks and bounding boxes) and plain text.
 
 REST API, with interactive docs at `http://localhost:8000/docs`:

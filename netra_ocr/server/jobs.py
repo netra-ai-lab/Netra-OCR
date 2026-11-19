@@ -47,7 +47,31 @@ def _keep_page_appearance(data: dict, current: Document) -> dict:
         if isinstance(new, dict):
             new = {**{k: old[k] for k in _PAGE_APPEARANCE if k in old}, **new}
         merged.append(new)
-    return {**data, "pages": merged}
+    return {**data, "pages": merged, "blocks": _keep_block_appearance(data.get("blocks"), current)}
+
+
+_BLOCK_APPEARANCE = ("style", "header_style")
+_LINE_APPEARANCE = ("ink", "scale")
+
+
+def _keep_block_appearance(blocks, current: Document):
+    """The same for blocks: a block's measured style, and its lines' ink
+    boxes and character scale while its lines are the ones measured."""
+    if not isinstance(blocks, list):
+        return blocks
+    known = {b.get("id"): b for b in current.blocks}
+    out = []
+    for new in blocks:
+        old = known.get(new.get("id")) if isinstance(new, dict) else None
+        if old is not None:
+            new = {**{k: old[k] for k in _BLOCK_APPEARANCE if k in old}, **new}
+            lines, old_lines = new.get("lines"), old.get("lines")
+            if (isinstance(lines, list) and isinstance(old_lines, list) and len(lines) == len(old_lines)
+                    and all(isinstance(a, dict) and a.get("bbox") == b.get("bbox") for a, b in zip(lines, old_lines))):
+                new["lines"] = [{**{k: b[k] for k in _LINE_APPEARANCE if k in b}, **a}
+                                for a, b in zip(lines, old_lines)]
+        out.append(new)
+    return out
 
 
 @dataclass
@@ -233,8 +257,12 @@ class JobManager:
         from ..ocr_engine import KhmerOCRPipeline
         key = (options.detector, options.layout, options.decoder, options.conf)
         if key not in self._pipelines:
+            # reconstruct: measure each page's look while the full-quality
+            # page is in memory, so the editor and the Word export start
+            # from the same layout without a second pass over a JPEG.
             self._pipelines[key] = KhmerOCRPipeline(detector=options.detector, conf=options.conf,
-                                                    decoder=options.decoder, layout=options.layout)
+                                                    decoder=options.decoder, layout=options.layout,
+                                                    reconstruct=True)
         return self._pipelines[key]
 
     def warmup(self) -> None:

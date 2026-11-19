@@ -77,7 +77,7 @@ export function renderHome(root, info) {
       advToggle.setAttribute("aria-expanded", String(!advanced.hidden));
     } }, t("opt.advanced"));
   const error = h("p", { class: "error-text upload-error", role: "alert", hidden: true });
-  const submit = h("button", { class: "pill pill-primary", type: "button" }, t("opt.submit"));
+  const submit = h("button", { class: "btn btn-primary", type: "button" }, t("opt.submit"));
 
   submit.addEventListener("click", async () => {
     if (!file) {
@@ -127,7 +127,7 @@ export function renderHome(root, info) {
       e.stopPropagation();
       if (!armed) {
         armed = true;
-        btn.classList.add("pill", "pill-sm", "armed");
+        btn.classList.add("btn", "btn-sm", "armed");
         btn.replaceChildren(t("recent.confirm"));
         return;
       }
@@ -143,7 +143,7 @@ export function renderHome(root, info) {
     btn.addEventListener("blur", () => {
       if (!armed || btn.disabled) return;
       armed = false;
-      btn.classList.remove("pill", "pill-sm", "armed");
+      btn.classList.remove("btn", "btn-sm", "armed");
       btn.replaceChildren(icon("trash"));
     });
     btn.addEventListener("keydown", (e) => e.stopPropagation());

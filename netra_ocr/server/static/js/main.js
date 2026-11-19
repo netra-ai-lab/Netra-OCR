@@ -64,11 +64,11 @@ window.addEventListener("netra:auth", () => {
   if (document.getElementById("auth-panel")) return;
   const input = h("input", { type: "password", autocomplete: "off", "aria-label": "API key" });
   const panel = h("section", { class: "wrap", id: "auth-panel" }, h("div", { class: "processing" },
-    h("p", { class: "eyebrow muted2" }, "401"),
+    h("p", { class: "label" }, "401"),
     h("h1", { class: "h2" }, t("auth.title")),
     h("p", { class: "note" }, t("auth.text")),
-    h("div", { class: "field", style: "max-width:24rem" }, input),
-    h("p", { style: "margin-top:16px" }, h("button", { class: "pill pill-primary", type: "button",
+    h("div", { class: "field auth-field" }, input),
+    h("p", { class: "auth-actions" }, h("button", { class: "btn btn-primary", type: "button",
       onclick: async () => { setKey(input.value.trim()); await loadInfo(); route(); } }, t("auth.save")))));
   if (cleanup) { cleanup(); cleanup = null; }
   view.replaceChildren(panel);
