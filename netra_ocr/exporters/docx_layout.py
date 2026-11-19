@@ -8,13 +8,12 @@ side blocks become a borderless table row; logos, seals and signatures
 are floating pictures at their position on the page. Text stays real,
 editable Word text.
 
-The fonts used for measuring are embedded (they're OFL-licensed), so the
-document renders as intended on machines that don't have them. They carry
-names of their own ("Netra Khmer Sans", ...): Word would draw an installed
-font of the same name instead, and old builds of Moul and Noto Sans Khmer
-with other metrics are common on Khmer PCs. With
-``fonts="system"`` the usual Khmer system fonts are named instead (Khmer
-OS Siemreap, Khmer OS Muol Light, ...) and nothing is embedded.
+By default (``fonts="system"``) text is set in the standard Khmer Unicode
+fonts every Khmer-language PC has: Khmer OS Muol for title text the scan
+set in Muol, Khmer OS Siemreap for everything else; nothing is embedded.
+With ``fonts="embed"`` the fonts used for measuring (Moul, Noto Sans and
+Serif Khmer, OFL-licensed) are named and embedded instead; note that Word
+draws an installed font of the same name in place of an embedded one.
 """
 
 import io
@@ -32,11 +31,12 @@ SPACER_PT = 1.0       # height of the empty paragraphs Word needs between tables
 BORDER = "808080"     # table grid lines: scanned grids are usually light
 
 
-# Latin text is set in a standard font, not the Khmer face's Latin letters:
-# in "system" mode the named Khmer font may be a build with no Latin letters
-# at all (Debian's Noto Sans Khmer, for one, or old Windows builds of Moul).
-# Arial throughout: the Latin letters of the Khmer OS fonts are sans-serif,
-# and so are the digits in most Khmer forms and tables.
+# In "embed" mode Latin text is set in a standard font, not the Khmer face's
+# Latin letters: a machine may have its own build of the Khmer font
+# installed, which Word prefers over the embedded copy, and some builds
+# (Debian's Noto Sans Khmer, old Windows builds of Moul) have no Latin
+# letters at all. Arial throughout: the Latin letters of the Khmer OS fonts
+# are sans-serif, and so are the digits in most Khmer forms and tables.
 LATIN_FONTS = {"sans": "Arial", "serif": "Arial", "muol": "Arial"}
 
 
@@ -49,7 +49,7 @@ def _font_names(style: dict, mode: str) -> Tuple[str, str]:
 
 
 class _Writer:
-    def __init__(self, doc: Document, fonts: str = "embed"):
+    def __init__(self, doc: Document, fonts: str = "system"):
         _import_docx()
         from docx import Document as WordDocument
         self.doc = doc
@@ -70,9 +70,23 @@ class _Writer:
         runs use the Latin font everywhere for the mirror reason: some
         renderers classify Latin next to Khmer as complex script and would
         draw it with the Khmer face, which may have no Latin letters.
+
+        ``size`` and ``scale`` are measured against the bundled fonts; in
+        "system" mode they're converted to the Khmer OS font named instead
+        (``Family.system_fit``), so its letters come out as tall and its
+        lines as wide as on the scan. The whole line takes the same factors,
+        Latin runs too, so Latin keeps its proportion to the Khmer around it.
         """
         from docx.oxml import OxmlElement
         from docx.oxml.ns import qn
+
+        size = size or style["size"]
+        if self.fonts == "system":
+            k, s = F.FAMILIES[style["font"]].system_size_and_width(bool(style.get("bold")))
+            wanted = size * k
+            size = max(1.0, round(wanted * 2) / 2)           # Word sizes are half points
+            scale = scale * s * wanted / size                # rounding the size changes width too
+        scale = int(round(min(600, max(1, scale))))          # Word's w:w range
 
         rpr = OxmlElement("w:rPr")
         cs, latin = _font_names(style, self.fonts)
@@ -92,9 +106,9 @@ class _Writer:
         rpr.append(colour)
         if scale != 100:
             w = OxmlElement("w:w")
-            w.set(qn("w:val"), str(int(scale)))
+            w.set(qn("w:val"), str(scale))
             rpr.append(w)
-        half_points = str(max(2, int(round((size or style["size"]) * 2))))
+        half_points = str(max(2, int(round(size * 2))))
         for tag in ("w:sz", "w:szCs"):
             el = OxmlElement(tag)
             el.set(qn("w:val"), half_points)
@@ -430,7 +444,7 @@ class _Writer:
         return buf.getvalue()
 
 
-def to_docx_layout(doc: Document, fonts: str = "embed") -> bytes:
+def to_docx_layout(doc: Document, fonts: str = "system") -> bytes:
     """Rebuild ``doc``'s pages as an editable Word document.
 
     Pages without measurements (documents made without ``reconstruct``)

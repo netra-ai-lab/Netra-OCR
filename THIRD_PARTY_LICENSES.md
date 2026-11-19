@@ -16,7 +16,7 @@ example the Docker images) or **offer it as a network service**.
 | [OpenCV](https://github.com/opencv/opencv) | The optional `legacy` and `tesseract` line detectors | Apache-2.0 | `legacy`, `tesseract` extras |
 | [Figtree](https://github.com/erikdkennedy/figtree) | UI typeface (Latin) | SIL OFL 1.1 | bundled in the web UI |
 | [Kantumruy Pro](https://fonts.google.com/specimen/Kantumruy+Pro) | UI typeface (Khmer) | SIL OFL 1.1 | bundled in the web UI |
-| [Moul](https://github.com/danhhong/Moul), [Noto Sans Khmer and Noto Serif Khmer](https://github.com/notofonts/khmer) | Measuring scanned text and embedding in original-layout Word output (`netra_ocr/reconstruct/fonts/`, renamed "Netra Moul" / "Netra Khmer Sans" / "Netra Khmer Serif"; see `OFL.txt` there) | SIL OFL 1.1 | bundled in the package |
+| [Moul](https://github.com/danhhong/Moul), [Noto Sans Khmer and Noto Serif Khmer](https://github.com/notofonts/khmer) | Measuring scanned text and embedding in original-layout Word output (`netra_ocr/reconstruct/fonts/`, see `OFL.txt` there) | SIL OFL 1.1 | bundled in the package |
 | [ultralytics](https://github.com/ultralytics/ultralytics), [doclayout-yolo](https://github.com/opendatalab/DocLayout-YOLO) | Training and exporting the detectors | AGPL-3.0 | `training/` only |
 | [PyTorch](https://github.com/pytorch/pytorch) | Training and exporting | BSD-3-Clause | `training/` only |
 

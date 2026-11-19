@@ -97,7 +97,7 @@ def main():
     ap.add_argument("inputs", nargs="*", help="images or PDFs (default: test_images/*)")
     ap.add_argument("--out", default=os.path.join(ROOT, "reconstruct_out"))
     ap.add_argument("--max-pages", type=int, default=3)
-    ap.add_argument("--fonts", default="embed", choices=["embed", "system"])
+    ap.add_argument("--fonts", default="system", choices=["system", "embed"])
     ap.add_argument("--server", action="store_true",
                     help="measure the way the web server does: OCR without measuring, save "
                          "(page renders as JPEG), reload, and measure on the Word export")

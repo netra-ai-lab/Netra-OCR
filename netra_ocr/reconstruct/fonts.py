@@ -43,22 +43,32 @@ class Family:
     # counts as a match. Letters mostly use Khmer OS Muol Light, which is
     # narrower and lighter than Moul (measured on real letters).
     expect: Tuple[float, float, float] = (1.0, 1.0, 1.0)
+    # Setting text in ``system_name`` instead of this font: (size factor that
+    # gives the same core-band height, character-width factor that then gives
+    # the same line width), for (regular, bold). Measured on Khmer text by
+    # scripts/calibrate_system_fonts.py; Khmer OS fonts draw far larger per
+    # point than Noto, so without this the text comes out ~20% too big.
+    system_fit: Tuple[Tuple[float, float], Tuple[float, float]] = ((1.0, 1.0), (1.0, 1.0))
 
     def file(self, bold: bool) -> str:
         return os.path.join(FONT_DIR, self.bold if bold and self.bold else self.regular)
 
+    def system_size_and_width(self, bold: bool) -> Tuple[float, float]:
+        return self.system_fit[1 if bold else 0]
 
-# The bundled files are Moul, Noto Sans Khmer and Noto Serif Khmer renamed
-# (scripts/rename_fonts.py): Word prefers an installed font over an embedded
-# one of the same name, and old, incompatible builds of all three are common
-# on Khmer PCs. Names no one has installed make Word use the embedded copy.
+
+# Word output names the standard Khmer Unicode fonts (``system_name``): Khmer
+# OS Muol for title text set in Muol, Khmer OS Siemreap for everything else.
 FAMILIES: Dict[str, Family] = {
-    "muol": Family("muol", "Moul-Regular.ttf", None, "Netra Moul", "Khmer OS Muol Light", True,
-                   expect=(0.91, 0.85, 0.95)),
+    "muol": Family("muol", "Moul-Regular.ttf", None, "Moul", "Khmer OS Muol", True,
+                   expect=(0.91, 0.85, 0.95),
+                   system_fit=((1.021, 0.954), (1.021, 0.954))),
     "sans": Family("sans", "NotoSansKhmer-Regular.ttf", "NotoSansKhmer-Bold.ttf",
-                   "Netra Khmer Sans", "Khmer OS Siemreap", True),
+                   "Noto Sans Khmer", "Khmer OS Siemreap", True,
+                   system_fit=((0.823, 1.121), (0.819, 1.198))),
     "serif": Family("serif", "NotoSerifKhmer-Regular.ttf", "NotoSerifKhmer-Bold.ttf",
-                    "Netra Khmer Serif", "Khmer OS Battambang", False),
+                    "Noto Serif Khmer", "Khmer OS Siemreap", False,
+                    system_fit=((0.937, 1.057), (0.929, 1.126))),
 }
 DEFAULT_FAMILY = "sans"
 # (family, bold) pairs tried for each line.

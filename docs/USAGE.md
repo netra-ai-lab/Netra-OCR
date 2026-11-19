@@ -89,19 +89,20 @@ Word output rebuilds each page as it looked, not just what it says. The
   underlines, list dashes and a seal's red over the text are.
 
 The `.docx` keeps real, editable text. Pictures float behind the text at their
-place on the page, and the fonts used are embedded, so the page renders as intended without them
-installed. A block you edit is re-flowed instead of keeping the scan's line breaks.
+place on the page. Text is set in the standard Khmer Unicode fonts: Khmer OS Muol
+for titles set in Muol, Khmer OS Siemreap for everything else. A block you edit is
+re-flowed instead of keeping the scan's line breaks.
 
 ```python
 pipeline = KhmerOCRPipeline(layout=True, reconstruct=True)  # measure while the full-quality page is in memory
 doc = pipeline.process_document("letter.jpg")
 save_document(doc, "letter.docx")                           # layout="original" (default)
 save_document(doc, "letter-clean.docx", layout="reflow")    # a clean, re-flowed document instead
-save_document(doc, "letter.docx", fonts="system")           # name Khmer OS fonts instead of embedding
+save_document(doc, "letter.docx", fonts="embed")            # embed the measuring fonts (Moul, Noto) instead
 ```
 
 On the command line, `--layout` with a `.docx` output rebuilds the page. Use
-`--docx-layout reflow` for the clean document and `--fonts system` to skip embedding.
+`--docx-layout reflow` for the clean document and `--fonts embed` to embed the measuring fonts.
 Measuring takes a few seconds per page on a CPU. Documents made without
 `reconstruct=True` are measured when first exported, from their stored page images.
 `python scripts/reconstruct_eval.py` rebuilds every sample in `test_images/` and writes

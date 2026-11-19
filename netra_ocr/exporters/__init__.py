@@ -26,7 +26,7 @@ LAYOUTS = ("original", "reflow")
 
 
 def export(doc: Document, fmt: str, basename: str = "document", layout: str = "original",
-           fonts: str = "embed") -> tuple[bytes, str, str]:
+           fonts: str = "system") -> tuple[bytes, str, str]:
     """Render ``doc`` as ``fmt``. Returns ``(data, filename, mimetype)``.
 
     ``layout`` and ``fonts`` apply to Word output; see ``docx_layout``.
@@ -56,7 +56,7 @@ def export(doc: Document, fmt: str, basename: str = "document", layout: str = "o
 
 
 def save_document(doc: Document, output_path: str, layout: str = "original",
-                  fonts: str = "embed") -> str:
+                  fonts: str = "system") -> str:
     """Write ``doc`` to ``output_path``; the extension picks the format.
 
     Markdown with figures is written as a .zip (document.md + images/), so

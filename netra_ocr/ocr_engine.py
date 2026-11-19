@@ -284,9 +284,10 @@ def main():
                         help="Word output with --layout or PDF input: 'original' (default) rebuilds the "
                              "page as it looked -- fonts, sizes, colours, placement, seals and signatures; "
                              "'reflow' writes a clean, re-flowed document.")
-    parser.add_argument("--fonts",      default="embed", choices=["embed", "system"],
-                        help="Original-layout Word output: embed the fonts used (default), or name the "
-                             "usual installed Khmer fonts (Khmer OS ...) instead.")
+    parser.add_argument("--fonts",      default="system", choices=["system", "embed"],
+                        help="Original-layout Word output: name the standard Khmer fonts, Khmer OS Muol "
+                             "for titles and Khmer OS Siemreap for the rest (default), or embed the fonts "
+                             "used for measuring instead.")
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--debug",      action="store_true")
     args = parser.parse_args()

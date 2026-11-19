@@ -182,7 +182,6 @@ def test_edited_block_reflows(enriched):
 
 def test_docx_rebuilds_the_page(enriched):
     from docx import Document as Word
-    from docx.oxml.ns import qn
 
     data = export(enriched, "docx")[0]
     word = Word(io.BytesIO(data))
@@ -191,19 +190,33 @@ def test_docx_rebuilds_the_page(enriched):
 
     xml = word.element.xml
     assert xml.count("<wp:anchor") >= 1                         # the seal floats on the page
-    muol = F.FAMILIES["muol"].name
-    # Title font, in every slot: Word draws Khmer with the ascii/hAnsi font.
-    assert f'w:ascii="{muol}" w:hAnsi="{muol}" w:eastAsia="{muol}" w:cs="{muol}"' in xml
+    # Standard Khmer fonts by default, in every slot (Word draws Khmer with
+    # the ascii/hAnsi font): Khmer OS Muol for the Muol title, Khmer OS
+    # Siemreap for the body.
+    for name in ("Khmer OS Muol", "Khmer OS Siemreap"):
+        assert f'w:ascii="{name}" w:hAnsi="{name}" w:eastAsia="{name}" w:cs="{name}"' in xml
+    assert "Noto" not in xml and 'w:cs="Moul"' not in xml
     assert 'w:lineRule="exact"' in xml
     texts = [p.text for p in word.paragraphs]
     assert "\n".join(BODY) in texts                             # source line breaks kept
     assert len(word.tables) == 1                                # the side-by-side letterhead
     assert [c.text for c in word.tables[0].rows[0].cells] == ["ក្រសួងសុខាភិបាល", "ព្រះរាជាណាចក្រកម្ពុជា"]
 
-    # Fonts are embedded, obfuscated per ECMA-376 17.8.1, and recoverable.
+    # Nothing is embedded: the fonts are on every Khmer-language PC.
     z = zipfile.ZipFile(io.BytesIO(data))
-    assert b"<w:embedTrueTypeFonts" in z.read("word/settings.xml")
+    assert not any(n.startswith("word/fonts/") for n in z.namelist())
+
+
+def test_embed_fonts_mode(enriched):
+    """fonts="embed": the measuring fonts are embedded, obfuscated per
+    ECMA-376 17.8.1, and recoverable."""
+    from docx.oxml.ns import qn
     from lxml import etree
+
+    data = export(enriched, "docx", fonts="embed")[0]
+    z = zipfile.ZipFile(io.BytesIO(data))
+    assert b'w:cs="Moul"' in z.read("word/document.xml")
+    assert b"<w:embedTrueTypeFonts" in z.read("word/settings.xml")
     table = etree.fromstring(z.read("word/fontTable.xml"))
     rels = etree.fromstring(z.read("word/_rels/fontTable.xml.rels"))
     targets = {r.get("Id"): r.get("Target") for r in rels}
@@ -213,8 +226,8 @@ def test_docx_rebuilds_the_page(enriched):
             if emb.tag in (qn("w:embedRegular"), qn("w:embedBold")):
                 embedded[(font.get(qn("w:name")), emb.tag)] = (emb.get(qn("w:fontKey")),
                                                               targets[emb.get(qn("r:id"))])
-    assert (muol, qn("w:embedRegular")) in embedded
-    key_guid, target = embedded[(muol, qn("w:embedRegular"))]
+    assert ("Moul", qn("w:embedRegular")) in embedded
+    key_guid, target = embedded[("Moul", qn("w:embedRegular"))]
     blob = bytearray(z.read("word/" + target))
     key = bytes.fromhex(key_guid.strip("{}").replace("-", ""))[::-1]
     for i in range(32):
@@ -223,17 +236,17 @@ def test_docx_rebuilds_the_page(enriched):
         assert bytes(blob) == fh.read()
 
 
-def test_khmer_and_latin_runs_name_one_font_each(enriched):
-    """A Khmer run names its Khmer font in every slot (Word draws Khmer with
-    the ascii font; Arial there falls back to DaunPenh), a Latin run Arial."""
+def _run_fonts(enriched, text, **kw):
+    """{run text: set of font names in its four rFonts slots} for ``text``
+    exported as the body block."""
     from docx import Document as Word
     from docx.oxml.ns import qn
 
     b = by_id(enriched, "body")
     saved = b["text"]
-    b["text"] = "ក្រសួង ABC 123"
+    b["text"] = text
     try:
-        word = Word(io.BytesIO(export(enriched, "docx")[0]))
+        word = Word(io.BytesIO(export(enriched, "docx", **kw)[0]))
     finally:
         b["text"] = saved
     runs = {}
@@ -241,48 +254,48 @@ def test_khmer_and_latin_runs_name_one_font_each(enriched):
         t, fonts = r.find(qn("w:t")), r.find(qn("w:rPr") + "/" + qn("w:rFonts"))
         if t is not None and fonts is not None and t.text.strip():
             runs[t.text.strip()] = {fonts.get(qn(a)) for a in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs")}
-    sans = F.FAMILIES[b["style"]["font"]].name
-    assert runs["ក្រសួង"] == {sans}
+    return runs
+
+
+def test_runs_name_one_font_in_every_slot(enriched):
+    """Word draws Khmer with the ascii/hAnsi font, not the complex-script
+    one: a Khmer run with Arial there comes out in DaunPenh, far smaller."""
+    runs = _run_fonts(enriched, "ក្រសួង ABC 123")
+    assert runs["ក្រសួង"] == {"Khmer OS Siemreap"}
+    assert runs["ABC 123"] == {"Khmer OS Siemreap"}
+    runs = _run_fonts(enriched, "ក្រសួង ABC 123", fonts="embed")
+    assert runs["ក្រសួង"] == {F.FAMILIES[by_id(enriched, "body")["style"]["font"]].name}
     assert runs["ABC 123"] == {"Arial"}
 
 
-def _ttf_family(path: str) -> str:
-    """Family name (name ID 1, Windows Unicode) read straight from a TTF."""
-    import struct
-    with open(path, "rb") as fh:
-        data = fh.read()
-    (num,) = struct.unpack(">H", data[4:6])
-    for i in range(num):
-        tag, _, offset, _ = struct.unpack(">4sIII", data[12 + 16 * i: 28 + 16 * i])
-        if tag == b"name":
-            _, count, strings = struct.unpack(">HHH", data[offset: offset + 6])
-            for j in range(count):
-                pid, _, _, nid, length, off = struct.unpack(
-                    ">6H", data[offset + 6 + 12 * j: offset + 18 + 12 * j])
-                if pid == 3 and nid == 1:
-                    start = offset + strings + off
-                    return data[start: start + length].decode("utf-16-be")
-    raise AssertionError(f"no family name in {path}")
+def test_standard_khmer_fonts():
+    """Titles set in Muol become Khmer OS Muol; everything else Khmer OS Siemreap."""
+    assert F.FAMILIES["muol"].system_name == "Khmer OS Muol"
+    assert F.FAMILIES["sans"].system_name == F.FAMILIES["serif"].system_name == "Khmer OS Siemreap"
 
 
-@pytest.mark.parametrize("key", sorted(F.FAMILIES))
-def test_embedded_fonts_have_names_of_their_own(key):
-    """Word draws an installed font in place of an embedded one of the same
-    name: the bundled files must carry the name the document asks for, and
-    not one an old installed Khmer font has."""
-    fam = F.FAMILIES[key]
-    for bold in {False, bool(fam.bold)}:
-        name = _ttf_family(fam.file(bold))
-        assert name == fam.name
-        assert name not in ("Moul", "Noto Sans Khmer", "Noto Serif Khmer", "Khmer Moul")
-        assert not name.startswith("Khmer OS") and name != fam.system_name
+def test_sizes_are_converted_to_the_khmer_os_fonts(enriched):
+    """Khmer OS Siemreap draws far larger per point than Noto Sans Khmer: 12 pt
+    measured text is set at about 10 pt, its characters widened back to the
+    scan's line width. ``fonts="embed"`` keeps the measured size."""
+    from docx import Document as Word
+    from docx.oxml.ns import qn
 
+    def body_run(**kw):
+        word = Word(io.BytesIO(export(enriched, "docx", **kw)[0]))
+        para = next(p for p in word.paragraphs if p.text.startswith(BODY[0]))
+        rpr = para.runs[0]._r.rPr
+        w = rpr.find(qn("w:w"))
+        return int(rpr.find(qn("w:sz")).get(qn("w:val"))) / 2, int(w.get(qn("w:val"))) if w is not None else 100
 
-def test_system_fonts_mode(enriched):
-    data = export(enriched, "docx", fonts="system")[0]
-    z = zipfile.ZipFile(io.BytesIO(data))
-    assert not any(n.startswith("word/fonts/") for n in z.namelist())
-    assert b"Khmer OS Muol Light" in z.read("word/document.xml")
+    body = by_id(enriched, "body")["style"]
+    k, s = F.FAMILIES[body["font"]].system_size_and_width(body["bold"])
+    size, scale = body_run()
+    assert abs(size - body["size"] * k) <= 0.25 and size < body["size"]
+    size_e, scale_e = body_run(fonts="embed")
+    assert size_e == body["size"]
+    # Same line width: size x scale is the measured one times the width factor.
+    assert abs(size * scale - size_e * scale_e * k * s) <= 0.02 * size_e * scale_e
 
 
 def test_appearance_survives_validation(enriched, tmp_path):
