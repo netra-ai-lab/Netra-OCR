@@ -134,7 +134,13 @@ def enrich_page(page: dict, blocks: List[dict], img_bgr: np.ndarray, assets,
                 continue
             line["ink"] = [ink.x1, ink.top, ink.x2, ink.bottom]
             inks.append((line, ink))
-        longest = {id(l) for l, _ in sorted(inks, key=lambda li: -li[1].width)[:MAX_FIT_LINES]}
+        # Per part: a ruled table's header row is styled on its own and
+        # its short lines would never be among the body's longest.
+        parts = defaultdict(list)
+        for line, ink in inks:
+            parts[_part(b, line)].append((line, ink))
+        longest = {id(l) for group in parts.values()
+                   for l, _ in sorted(group, key=lambda li: -li[1].width)[:MAX_FIT_LINES]}
         for line, ink in inks:
             fit = F.HAS_SHAPING and id(line) in longest
             fits = F.fit_all(ink, line.get("text", "")) if fit else {}

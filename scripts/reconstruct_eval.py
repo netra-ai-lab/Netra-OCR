@@ -15,6 +15,7 @@ LibreOffice is found on PATH, under /opt/libreoffice*, or via $SOFFICE.
 
     python scripts/reconstruct_eval.py                     # all of test_images/
     python scripts/reconstruct_eval.py letter.jpg --out /tmp/rebuild
+    python scripts/reconstruct_eval.py --server            # as the web app does it
 """
 
 import argparse
@@ -33,6 +34,7 @@ from PIL import Image, ImageFilter
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+from netra_ocr.document import Document  # noqa: E402
 from netra_ocr.exporters import export  # noqa: E402
 from netra_ocr.ocr_engine import KhmerOCRPipeline  # noqa: E402
 from netra_ocr.reconstruct import plan as PL, preview as PV  # noqa: E402
@@ -96,6 +98,9 @@ def main():
     ap.add_argument("--out", default=os.path.join(ROOT, "reconstruct_out"))
     ap.add_argument("--max-pages", type=int, default=3)
     ap.add_argument("--fonts", default="embed", choices=["embed", "system"])
+    ap.add_argument("--server", action="store_true",
+                    help="measure the way the web server does: OCR without measuring, save "
+                         "(page renders as JPEG), reload, and measure on the Word export")
     args = ap.parse_args()
 
     inputs = args.inputs or sorted(glob.glob(os.path.join(ROOT, "test_images", "*")))
@@ -103,12 +108,16 @@ def main():
     soffice = find_soffice()
     if not soffice:
         print("LibreOffice not found: sheets show the plan preview only.")
-    pipeline = KhmerOCRPipeline(layout=True, reconstruct=True)
+    pipeline = KhmerOCRPipeline(layout=True, reconstruct=not args.server)
 
     for path in inputs:
         name = os.path.basename(path)
         t0 = time.time()
         doc = pipeline.process_document(path, max_pages=args.max_pages)
+        if args.server:
+            saved = os.path.join(args.out, name + ".job")
+            doc.save(saved)
+            doc = Document.load(saved)
         t_ocr = time.time() - t0
         data = export(doc, "docx", fonts=args.fonts)[0]
         docx_path = os.path.join(args.out, name + ".docx")

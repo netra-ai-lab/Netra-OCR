@@ -338,3 +338,187 @@ def test_ruled_table_keeps_its_grid_in_word():
     assert t.cell(2, 2).text == "02-2022"
     xml = t._tbl.xml
     assert 'w:hRule="exact"' in xml and 'w:val="single"' in xml   # exact rows, drawn borders
+
+
+def make_crossed_table():
+    """A dark ruled table (3 columns x 3 rows) whose rows the line detector
+    read as single lines straight across the column rules, the way it does
+    on small scans ("1 | Policy specialist | 1")."""
+    img = Image.new("RGB", (800, 220), "white")
+    d = ImageDraw.Draw(img)
+    xs, ys = [40, 120, 600, 760], [30, 80, 130, 180]
+    for y in ys:
+        d.line([(xs[0], y), (xs[-1], y)], fill=(40, 40, 40), width=2)
+    for x in xs:
+        d.line([(x, ys[0]), (x, ys[-1])], fill=(40, 40, 40), width=2)
+    font = F._font(F.FAMILIES["sans"].file(False), 22)
+    boxes = []
+    for r in range(3):
+        base = ys[r] + 36
+        for x, text in ((70, str(r + 1)), (130, "Digital Policy Specialist"), (660, "1")):
+            d.text((x, base), text, font=font, fill="black", anchor="ls")
+        # Starts a little above the row's top rule, crosses both inner rules.
+        boxes.append((60, ys[r] - 2, 690, ys[r + 1] - 4))
+    return img, boxes, xs, ys
+
+
+def test_lines_across_column_rules_are_cut_into_cells():
+    from netra_ocr.layout.table import drawn_rules, split_at_rules
+    from netra_ocr.structure import Unit, ink_mask, split_table_lines
+
+    img, boxes, xs, ys = make_crossed_table()
+    bgr = rgb_to_bgr(np.asarray(img))
+    gray = np.asarray(img.convert("L"))
+    fy, strong, _ = drawn_rules(gray, (40, 30, 760, 180))
+    assert len(fy) == 4 and all(abs(a - b) <= 2 for a, b in zip(fy, ys))
+    assert len(strong) == 4 and all(abs(a - b) <= 2 for a, b in zip(strong, xs))
+
+    pieces = split_at_rules(boxes, ink_mask(bgr), fy, strong)
+    for r, row in enumerate(pieces):
+        assert len(row) == 3
+        for (x1, y1, x2, y2), (a, b) in zip(row, zip(xs, xs[1:])):
+            assert a < x1 < x2 < b                      # inside its column, clear of the rules
+            assert ys[r] < y1 < y2 <= ys[r + 1]         # and of the row's rules
+
+    crops = [img.crop(b) for b in boxes]
+    units = [Unit("plain text", (0, 0, 30, 10), []), Unit("table", (40, 30, 760, 180), [0, 1, 2])]
+    new_boxes, new_crops, new_units = split_table_lines(bgr, units, boxes, crops)
+    assert len(new_boxes) == len(new_crops) == 9
+    assert new_units[1].lines == list(range(9)) and new_units[0].lines == []
+
+
+def test_cell_alignment_compares_the_gaps():
+    # Long text from the left edge of a wide cell: its centre is near the
+    # cell's, but it is left aligned.
+    assert PL._cell_align((110, 0, 398, 0), 104, 443) == "left"
+    assert PL._cell_align((80, 0, 90, 0), 64, 104) == "center"
+    assert PL._cell_align((380, 0, 438, 0), 104, 443) == "right"
+
+
+def test_page_frame_does_not_make_a_page_sized_picture():
+    from netra_ocr.reconstruct import graphics
+
+    img = Image.new("RGB", (800, 1000), "white")
+    d = ImageDraw.Draw(img)
+    d.rectangle([60, 60, 740, 940], outline=(30, 30, 30), width=2)          # the page frame
+    d.ellipse([480, 700, 640, 860], outline=(200, 30, 40), width=8)         # a seal
+    d.line([(150, 300), (190, 330), (230, 290)], fill=(20, 40, 160), width=4)   # a tick
+    rgb = np.asarray(img)
+    overlays, _ = graphics.extract(rgb, P.local_background(rgb), [], [])
+    page = 800 * 1000
+    assert overlays and all((o.bbox[2] - o.bbox[0]) * (o.bbox[3] - o.bbox[1]) < 0.1 * page
+                            for o in overlays)
+    assert any(o.kind == "stamp" for o in overlays)
+
+
+def test_figure_around_text_keeps_only_its_picture():
+    from netra_ocr.layout.base import LayoutRegion
+    from netra_ocr.structure import plan_page
+
+    ink = np.zeros((600, 500), bool)
+    lines = [(20, 100 + 30 * i, 300, 120 + 30 * i) for i in range(5)]
+    for x1, y1, x2, y2 in lines:
+        ink[y1 + 5:y2 - 5, x1:x2:4] = True                  # text strokes
+    ink[110:220, 340:460] = True                            # a seal beside the text
+    units = plan_page((500, 600), lines, [], [LayoutRegion("figure", (10, 90, 480, 250))], ink=ink)
+    figures = [u for u in units if u.label == "figure"]
+    assert len(figures) == 1 and figures[0].bbox[0] >= 320       # the seal alone
+    assert sorted(i for u in units if u.label != "figure" for i in u.lines) == list(range(5))
+
+
+def test_list_dash_left_of_a_line_is_kept():
+    from netra_ocr.reconstruct import graphics
+
+    img = Image.new("RGB", (1000, 400), "white")
+    d = ImageDraw.Draw(img)
+    d.line([(180, 120), (188, 120)], fill="black", width=2)     # "-" the detector left out
+    d.line([(600, 300), (608, 300)], fill="black", width=2)     # a speck in the margin
+    rgb = np.asarray(img)
+    overlays, _ = graphics.extract(rgb, P.local_background(rgb), [((210, 100, 900, 140), None)], [])
+    assert len(overlays) == 1 and overlays[0].bbox[0] < 180 < overlays[0].bbox[2]
+
+
+def test_a_rule_through_the_middle_of_a_line_does_not_cut_it():
+    from netra_ocr.layout.table import split_at_rules
+
+    ink = np.zeros((200, 200), bool)
+    ink[50:110, 60:100] = True
+    # A "rule" found through the middle of a text line is the text itself.
+    assert split_at_rules([(60, 40, 100, 120)], ink, [30, 80, 180], []) == [None]
+    # One just inside its top edge is the row's rule: the box is trimmed below it.
+    (piece,), = split_at_rules([(60, 40, 100, 120)], ink, [45, 180], [])
+    assert piece[1] > 45
+
+
+def test_leftovers_of_recognized_text_are_not_pictures():
+    from netra_ocr.reconstruct import graphics
+    from netra_ocr.reconstruct.style import Ink
+
+    img = Image.new("RGB", (800, 400), "white")
+    d = ImageDraw.Draw(img)
+    box, ink = (100, 90, 600, 140), Ink(110, 590, 105, 125, 0.2, 0.3, (20, 60, 150), 20.0)
+    d.rectangle([110, 105, 590, 125], fill=(20, 60, 150))          # the line's letters
+    d.rectangle([200, 96, 300, 100], fill=(120, 150, 210))         # off-colour tops of tall strokes
+    d.line([(110, 133), (560, 133)], fill=(20, 60, 150), width=2)  # an underline
+    d.ellipse([400, 60, 560, 220], outline=(200, 30, 40), width=8)  # a seal across the line
+    rgb = np.asarray(img)
+    overlays, _ = graphics.extract(rgb, P.local_background(rgb), [(box, ink)], [])
+    boxes = [o.bbox for o in overlays]
+    assert not any(b[1] <= 98 <= b[3] and b[0] <= 250 <= b[2] for b in boxes)    # tops: erased
+    underline = [b for b in boxes if b[1] <= 133 <= b[3] and b[3] - b[1] < 8]
+    assert underline and min(b[0] for b in underline) <= 112 and max(b[2] for b in underline) >= 558
+    assert any(o.kind == "stamp" for o in overlays)                              # seal: kept
+
+
+def test_paragraph_added_in_the_editor_follows_its_block():
+    from netra_ocr.reconstruct import enrich_document
+
+    assets = AssetStore()
+    assets.put("page-0", Image.new("RGB", (1240, 1754), "white"))
+    blocks = [
+        {"id": "a", "type": "paragraph", "page": 0, "text": "first", "bbox": [100, 100, 600, 140],
+         "lines": [{"text": "first", "bbox": [100, 100, 600, 140]}]},
+        {"id": "new", "type": "paragraph", "page": 0, "text": "typed in the editor", "bbox": None},
+        {"id": "b", "type": "paragraph", "page": 0, "text": "second", "bbox": [100, 400, 600, 440],
+         "lines": [{"text": "second", "bbox": [100, 400, 600, 440]}]},
+    ]
+    doc = Document.from_dict({"pages": [{"width": 1240, "height": 1754, "image": "page-0"}], "blocks": blocks}, assets)
+    enrich_document(doc)
+    plan = PL.to_dict(PL.build_document(doc)[0])
+    import json
+    json.dumps(plan)                                       # plain JSON for the editor
+    order = [b["item"]["id"] for b in plan["bands"] if b["item"]]
+    assert order == ["a", "new", "b"]
+    added = next(b["item"] for b in plan["bands"] if b["item"] and b["item"]["id"] == "new")
+    assert added["keep_lines"] is False and added["text"] == "typed in the editor"
+    assert "typed in the editor" in zipfile.ZipFile(io.BytesIO(export(doc, "docx")[0])).read("word/document.xml").decode()
+
+
+def test_paper_edges_go_but_a_printed_frame_stays():
+    from netra_ocr.reconstruct import graphics
+
+    def page(frame):
+        img = Image.new("RGB", (800, 1100), "white")
+        d = ImageDraw.Draw(img)
+        lines = []
+        for i in range(12):                                    # the text
+            y = 150 + 60 * i
+            for x in range(120, 680, 7):                       # letters: strokes, not one bar
+                d.line([(x, y + 8), (x + 2, y + 22)], fill=(30, 30, 30), width=2)
+            lines.append(((110, y, 690, y + 30), None))
+        d.line([(120, 900), (680, 900)], fill=(30, 30, 30), width=2)   # a rule inside the text: stays
+        lines.append(((110, 920, 690, 950), None))
+        if frame:
+            d.rectangle([60, 60, 740, 1040], outline=(20, 20, 20), width=3)
+        else:                                                  # where the scanned sheet ends
+            d.rectangle([752, 40, 770, 1060], fill=(90, 90, 90))           # right shadow, full height
+            d.rectangle([30, 1062, 770, 1074], fill=(70, 70, 70))          # bottom shadow
+            d.line([(40, 600), (40, 900)], fill=(60, 60, 60), width=4)     # left edge, partly
+        rgb = np.asarray(img)
+        return graphics.extract(rgb, P.local_background(rgb), lines, [])[0]
+
+    edges = page(frame=False)
+    assert [o for o in edges if o.bbox[1] <= 900 <= o.bbox[3] and o.bbox[2] - o.bbox[0] > 500]   # the rule
+    assert not [o for o in edges if o.bbox[0] > 700 or o.bbox[1] > 1050 or o.bbox[2] < 100]
+    frame = page(frame=True)
+    assert len([o for o in frame if max(o.bbox[2] - o.bbox[0], o.bbox[3] - o.bbox[1]) > 500]) == 5   # 4 sides + rule

@@ -103,6 +103,7 @@ class Float:
     width: float
     height: float
     kind: str = "figure"
+    block_id: Optional[str] = None   # the figure block it shows, if any
 
 
 @dataclass
@@ -220,10 +221,12 @@ def _para(block: dict, to_pt, page_w_pt: float) -> Optional[Para]:
 def _cell_align(line_box, cell_x1: float, cell_x2: float) -> str:
     """Where a line sits in its cell: centred, right or left aligned."""
     w = max(1.0, cell_x2 - cell_x1)
-    lx1, lx2 = line_box[0], line_box[2]
-    if abs((lx1 + lx2) / 2 - (cell_x1 + cell_x2) / 2) < 0.12 * w:
+    gap_l, gap_r = line_box[0] - cell_x1, cell_x2 - line_box[2]
+    # Compare the gaps, not the centres: long text in a wide cell has its
+    # centre near the cell's even when it starts at the left edge.
+    if abs(gap_l - gap_r) <= max(3.0, 0.25 * (gap_l + gap_r)):
         return "center"
-    if cell_x2 - lx2 < 0.1 * w and lx1 - cell_x1 > 0.2 * w:
+    if gap_r < gap_l and gap_r < 0.1 * w:
         return "right"
     return "left"
 
@@ -425,18 +428,25 @@ def build(page: dict, blocks: Sequence[dict]) -> PagePlan:
         return x + ox
 
     items, floats = [], []
+    # Paragraphs added in the editor have no place on the scan: each goes
+    # right after the block before it (or first on the page), in the flow.
+    added: List[tuple] = []            # (previous block or None, block)
+    prev = None
     for b in blocks:
         if b["type"] in TEXT_TYPES:
             p = _para(b, to_pt, page_w)
             if p:
                 items.append(p)
+            elif b.get("text", "").strip() and not b.get("bbox") and not b.get("lines"):
+                added.append((prev, b))
         elif b["type"] == "table":
             t = _table(b, to_pt)
             if t:
                 items.append(t)
         elif b.get("image") and b.get("bbox"):
             x1, y1, x2, y2 = (to_pt(v) for v in b["bbox"])
-            floats.append(Float(b["image"], shift(x1), y1, x2 - x1, y2 - y1, "figure"))
+            floats.append(Float(b["image"], shift(x1), y1, x2 - x1, y2 - y1, "figure", b.get("id")))
+        prev = b
     for ov in page.get("overlays") or []:
         x1, y1, x2, y2 = (to_pt(v) for v in ov["bbox"])
         floats.append(Float(ov["image"], shift(x1), y1, x2 - x1, y2 - y1, ov.get("kind", "mark")))
@@ -448,8 +458,14 @@ def build(page: dict, blocks: Sequence[dict]) -> PagePlan:
         else:
             it.left = shift(it.left)
 
-    if not items:
+    if not items and not added:
         return PagePlan(page.get("index", 0), page_w, page_h, (36.0, 36.0, 36.0, 36.0), [], floats)
+    if not items:
+        margin = 0.1 * page_w
+        bands = []
+        for _, b in added:
+            bands.append(_added_band(b, page, margin, page_w - margin))
+        return PagePlan(page.get("index", 0), page_w, page_h, (margin, margin, margin, 36.0), bands, floats)
 
     # Content box: the sheet's margins are where the text is on the scan.
     left = min(_x_extent(it)[0] for it in items)
@@ -506,9 +522,19 @@ def build(page: dict, blocks: Sequence[dict]) -> PagePlan:
     # Exact spacing: each band starts where it started on the scan, after
     # whatever the previous band actually took up.
     bands.sort(key=lambda b: b.top)
-    top_margin = max(0.0, bands[0].top)
+    for before, b in added:
+        at = _band_after(bands, before)
+        band = _added_band(b, page, left, right)
+        band.top = band.bottom = None            # follows the flow, wherever that is
+        bands.insert(at, band)
+    top_margin = max(0.0, next(b.top for b in bands if b.top is not None))
     cursor = top_margin
     for band in bands:
+        if band.top is None:                     # an added paragraph: no gap of its own
+            band.space_before = 0.0
+            band.item.space_before = 0.0
+            cursor += band.item.bottom - band.item.top
+            continue
         band.space_before = max(0.0, band.top - cursor)
         start = cursor + band.space_before
         if band.item is not None:
@@ -527,6 +553,67 @@ def build(page: dict, blocks: Sequence[dict]) -> PagePlan:
     bottom_margin = float(np.clip((page_h - cursor) / 2, 0.0, 36.0))
     margins = (left, page_w - right, top_margin, bottom_margin)
     return PagePlan(page.get("index", 0), page_w, page_h, margins, bands, floats)
+
+
+def _added_band(block: dict, page: dict, left: float, right: float) -> Band:
+    """A paragraph typed in the editor: the page's body face and size,
+    reflowed across the text column."""
+    st = dict(DEFAULT_STYLE)
+    st["font"] = page.get("body_font") if page.get("body_font") in F.FAMILIES else F.DEFAULT_FAMILY
+    st["size"] = float(page.get("body_size") or DEFAULT_STYLE["size"])
+    st.update(block.get("style") or {})
+    pitch = natural_pitch(st)
+    text = block.get("text", "")
+    row = Row(text=text.split("\n")[0], x1=left, x2=right, centre=pitch / 2)
+    para = Para(block=block, rows=[row], style=st, align=block.get("align", "left"), pitch=pitch,
+                top=0.0, bottom=pitch, keep_lines=False, text=text)
+    return Band(top=0.0, bottom=pitch, item=para)
+
+
+def _band_after(bands: List[Band], block: Optional[dict]) -> int:
+    """Index just after the band holding ``block`` (0 when there is none)."""
+    if block is None:
+        return 0
+    for i, band in enumerate(bands):
+        items = [band.item] if band.item is not None else [it for c in band.columns for it in c.items]
+        if any(it.block is block for it in items):
+            return i + 1
+    return len(bands)
+
+
+# ── serialisation (the web editor draws the same plan the writer follows) ──
+
+def _para_dict(p: Para) -> dict:
+    return {"kind": "para", "id": p.block.get("id"), "style": p.style, "align": p.align,
+            "pitch": p.pitch, "keep_lines": p.keep_lines, "text": p.text,
+            "rows": [{"text": r.text, "scale": r.scale} for r in p.rows],
+            "left": p.left, "right": p.right, "first": p.first, "space_before": p.space_before}
+
+
+def _table_dict(t: Table) -> dict:
+    return {"kind": "table", "id": t.block.get("id"), "style": t.style, "header_style": t.header_style,
+            "col_widths": t.col_widths, "row_heights": t.row_heights, "left": t.left,
+            "borders": t.borders, "padding": t.padding, "space_before": t.space_before,
+            "pitch": natural_pitch(t.style),
+            "header_pitch": natural_pitch(t.header_style) if t.header_style else None,
+            "cells": [[{"lines": c.lines, "align": c.align, "scale": c.scale, "valign": c.valign} for c in row]
+                      for row in t.cells]}
+
+
+def to_dict(plan: PagePlan) -> dict:
+    """A page plan as plain JSON, in points."""
+    bands = []
+    for band in plan.bands:
+        item = None
+        if band.item is not None:
+            item = _para_dict(band.item) if isinstance(band.item, Para) else _table_dict(band.item)
+        bands.append({"space_before": band.space_before, "item": item,
+                      "columns": [{"x1": c.x1, "x2": c.x2, "items": [_para_dict(it) for it in c.items]}
+                                  for c in band.columns]})
+    return {"index": plan.index, "width": plan.width, "height": plan.height, "margins": list(plan.margins),
+            "bands": bands,
+            "floats": [{"image": f.image, "x": f.x, "y": f.y, "width": f.width, "height": f.height,
+                        "kind": f.kind, "block_id": f.block_id} for f in plan.floats]}
 
 
 def build_document(doc) -> List[PagePlan]:

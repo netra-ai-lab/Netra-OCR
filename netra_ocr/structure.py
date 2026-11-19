@@ -22,10 +22,10 @@ import numpy as np
 from PIL import Image
 
 from .document import AssetStore
-from .imaging import bgr_to_rgb, otsu_threshold, to_gray
+from .imaging import bgr_to_rgb, connected_components, otsu_threshold, to_gray
 from .layout.base import IMAGE_LABELS, TABLE_LABELS, TEXT_LABELS, Box, LayoutRegion, area, intersection
 from .layout.order import assign_lines, group_orphan_lines, union_box, xy_cut_order
-from .layout.table import build_grid, cells_from_grid, ruled_grid
+from .layout.table import build_grid, cells_from_grid, drawn_rules, ruled_grid, split_at_rules
 
 CAPTION_LABELS = {"figure_caption", "table_caption", "table_footnote", "formula_caption"}
 
@@ -280,6 +280,39 @@ def _figure_is_text(region: LayoutRegion, line_boxes: Sequence[Box], logo_boxes:
     return mask.mean() < FIGURE_RESIDUAL_INK
 
 
+def _figure_core(region: LayoutRegion, line_boxes: Sequence[Box], ink: np.ndarray
+                 ) -> Optional[Box]:
+    """The picture inside a 'figure' that also holds lines of text.
+
+    The layout model sometimes boxes a seal together with the signature
+    block around it, or a photo with the paragraphs beside it, as one
+    figure; kept whole, all that text would become part of a picture.
+    Returns the box of the ink that isn't text (the seal, the photo), when
+    it is clearly smaller than the region, else None.
+    """
+    inside = [b for b in line_boxes if intersection(b, region.bbox) >= 0.5 * max(1, area(b))]
+    if len(inside) < 2:
+        return None
+    x1, y1, x2, y2 = region.bbox
+    mask = ink[y1:y2, x1:x2].copy()
+    if mask.size == 0:
+        return None
+    for b in inside:
+        mask[max(0, b[1] - 3 - y1):max(0, b[3] + 3 - y1), max(0, b[0] - 3 - x1):max(0, b[2] + 3 - x1)] = False
+    lh = median(_height(b) for b in inside)
+    min_area = max(30, int((0.8 * lh) ** 2))
+    parts = [c for c in connected_components(mask) if c[2] * c[3] >= min_area and c[4] >= min_area // 4]
+    if not parts:
+        return None
+    pad = max(3, int(0.2 * lh))
+    core = (max(x1, x1 + min(int(c[0]) for c in parts) - pad), max(y1, y1 + min(int(c[1]) for c in parts) - pad),
+            min(x2, x1 + max(int(c[0] + c[2]) for c in parts) + pad),
+            min(y2, y1 + max(int(c[1] + c[3]) for c in parts) + pad))
+    if area(core) >= 0.6 * area(region.bbox):
+        return None
+    return core
+
+
 def _page_zone(bbox: Box, page_h: int) -> Optional[str]:
     if bbox[3] <= HEADER_ZONE * page_h:
         return "page_header"
@@ -396,6 +429,12 @@ def plan_page(page_size, line_boxes: Sequence[Box], logo_boxes: Sequence[Box],
     if ink is not None:
         regions = [r for r in regions
                    if not (r.label == "figure" and _figure_is_text(r, line_boxes, logo_boxes, ink))]
+        # A figure that is mostly text around a picture keeps only the picture.
+        shrunk = []
+        for r in regions:
+            core = _figure_core(r, line_boxes, ink) if r.label == "figure" else None
+            shrunk.append(LayoutRegion(r.label, core, r.score) if core else r)
+        regions = shrunk
 
     assignment = assign_lines(line_boxes, regions)
     line_h = median([_height(b) for b in line_boxes]) if line_boxes else None
@@ -451,6 +490,47 @@ def plan_page(page_size, line_boxes: Sequence[Box], logo_boxes: Sequence[Box],
 def _crop(img_bgr: np.ndarray, box: Box) -> Image.Image:
     x1, y1, x2, y2 = box
     return Image.fromarray(bgr_to_rgb(img_bgr[y1:y2, x1:x2]))
+
+
+def split_table_lines(img_bgr: np.ndarray, units: Sequence[Unit], line_boxes: Sequence[Box],
+                      line_crops: Sequence[Image.Image], ink: Optional[np.ndarray] = None
+                      ) -> tuple[List[Box], List[Image.Image], List[Unit]]:
+    """Cut text lines that run across a ruled table's drawn rules, before
+    recognition, so each cell is read on its own (``split_at_rules``).
+
+    Returns new ``(line_boxes, line_crops, units)``; units' line indices
+    are remapped. Pages without ruled tables come back unchanged.
+    """
+    gray = None
+    replace: dict = {}
+    for u in units:
+        if u.label not in TABLE_LABELS or u.recognize_whole or not u.lines:
+            continue
+        if gray is None:
+            gray = to_gray(img_bgr)
+            ink = ink if ink is not None else ink_mask(img_bgr)
+        rules = drawn_rules(gray, u.bbox)
+        if rules is None or len(rules[0]) < 3:
+            continue
+        ys, strong, _ = rules
+        pieces = split_at_rules([line_boxes[i] for i in u.lines], ink, ys, strong)
+        for i, p in zip(u.lines, pieces):
+            if p is not None:
+                replace[i] = p
+    if not replace:
+        return list(line_boxes), list(line_crops), list(units)
+    boxes: List[Box] = []
+    crops: List[Image.Image] = []
+    remap: dict = {}
+    for i, (b, c) in enumerate(zip(line_boxes, line_crops)):
+        remap[i] = []
+        for nb in replace.get(i, [b]):
+            remap[i].append(len(boxes))
+            boxes.append(tuple(int(v) for v in nb))
+            crops.append(c if i not in replace else _crop(img_bgr, nb))
+    new_units = [Unit(u.label, u.bbox, [j for i in u.lines for j in remap[i]], u.recognize_whole)
+                 for u in units]
+    return boxes, crops, new_units
 
 
 def region_crops(img_bgr: np.ndarray, units: Sequence[Unit]) -> List[Image.Image]:

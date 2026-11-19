@@ -110,15 +110,17 @@ def _peaks(cover: np.ndarray, threshold: float) -> List[int]:
     return [int(round(sum(g) / len(g))) for g in out]
 
 
-def ruled_grid(gray: np.ndarray, box: Box, lines: Sequence[Line]
-               ) -> Optional[Tuple[List[int], List[int]]]:
-    """Row and column edges of a table drawn with grid lines, in page pixels.
+def drawn_rules(gray: np.ndarray, box: Box) -> Optional[Tuple[List[int], List[int], List[int]]]:
+    """The rules drawn in a table's box, in page pixels:
+    ``(rows, strong_cols, weak_cols)``.
 
-    Horizontal rules must cross most of the table. A vertical rule must run
-    through nearly every row, or through many rows standing alone (barcode
-    bars and text stems are tall and dark too, but come in clusters). Columns whose rule is too faint to see
-    are taken from the gaps between the text columns. Returns ``None`` when
-    the table isn't ruled (fewer than two horizontal rules).
+    Horizontal rules must cross most of the table. A vertical rule is
+    *strong* when it runs through nearly every row: nothing but a drawn
+    rule does that, so it's a column edge even when the line detector has
+    run a row of text straight across it. It is *weak* when it runs through
+    many rows standing alone (a faint rule fading in places; barcode bars
+    and text stems are tall and dark too, but come in clusters). ``None``
+    when the table isn't ruled (fewer than two horizontal rules).
     """
     h, w = gray.shape
     pad = 12
@@ -133,24 +135,40 @@ def ruled_grid(gray: np.ndarray, box: Box, lines: Sequence[Line]
         return None
 
     vr = _ridges(crop, 1)
-    xs = []
-    bands = list(zip(ys, ys[1:]))
+    strong, weak = [], []
+    bands = [(a, b) for a, b in zip(ys, ys[1:]) if b - a > 6]
     candidates = _peaks(vr.mean(axis=0), 0.2)
-    for k, x in enumerate(candidates):
+    shares = []
+    for x in candidates:
         lo, hi = max(0, x - 2), x + 3
-        present = [vr[a + 3:b - 2, lo:hi].any(axis=1).mean() >= 0.9 for a, b in bands if b - a > 6]
-        if not present:
-            continue
-        share = sum(present) / len(present)
-        # A rule runs through (nearly) every row; a faint one may fade in
-        # places, but it stands alone. Barcode bars line up from row to row
-        # when codes share a prefix, but they come in dense clusters.
-        alone = all(abs(x - o) > 12 for j, o in enumerate(candidates) if j != k)
-        if share >= 0.85 or (alone and share >= 0.4):
-            xs.append(x)
+        present = [vr[a + 3:b - 2, lo:hi].any(axis=1).mean() >= 0.9 for a, b in bands]
+        shares.append(sum(present) / len(present) if present else 0.0)
+    for k, (x, share) in enumerate(zip(candidates, shares)):
+        near = [j for j, o in enumerate(candidates) if j != k and abs(x - o) <= 12]
+        alone = not near
+        # Barcode bars that line up from row to row (codes sharing a
+        # prefix) run through every row too, but side by side.
+        clustered = any(shares[j] >= 0.85 for j in near)
+        if share >= 0.85 and len(bands) >= 2 and not clustered:
+            strong.append(x + x1)
+        elif share >= 0.85 or (alone and share >= 0.4):
+            weak.append(x + x1)
+    return _drop_slivers(_merge_edges([y + y1 for y in ys], 6)), strong, weak
 
-    ys = [y + y1 for y in ys]
-    xs = [x + x1 for x in xs]
+
+def ruled_grid(gray: np.ndarray, box: Box, lines: Sequence[Line]
+               ) -> Optional[Tuple[List[int], List[int]]]:
+    """Row and column edges of a table drawn with grid lines, in page pixels.
+
+    Rows and columns come from the drawn rules (``drawn_rules``). Columns
+    whose rule is too faint to see are taken from the gaps between the
+    text columns. Returns ``None`` when the table isn't ruled.
+    """
+    rules = drawn_rules(gray, box)
+    if rules is None:
+        return None
+    ys, strong, weak = rules
+    xs = sorted(strong + weak)
     text = [(b, t) for b, t in lines if t.strip()]
     text_left = min((b[0] for b, _ in text), default=int(box[0]))
     text_right = max((b[2] for b, _ in text), default=int(box[2]))
@@ -171,14 +189,65 @@ def ruled_grid(gray: np.ndarray, box: Box, lines: Sequence[Line]
             if all(abs(mid - x) > max(8, (b[0] - a[1]) // 2) for x in xs):
                 xs.append(mid)
         xs.sort()
-        # An edge through the middle of a text line isn't a column edge.
+        # An edge through the middle of a text line isn't a column edge --
+        # unless it's a rule drawn through every row.
         xs = [x for i, x in enumerate(xs)
-              if i in (0, len(xs) - 1) or not any(b[0] + 6 < x < b[2] - 6 for b, _ in text)]
+              if i in (0, len(xs) - 1) or any(abs(x - s) <= 2 for s in strong)
+              or not any(b[0] + 6 < x < b[2] - 6 for b, _ in text)]
     xs = _merge_edges(xs, 10)
-    ys = _drop_slivers(_merge_edges(ys, 6))
     if len(xs) < 2 or len(ys) < 2:
         return None
     return ys, xs
+
+
+def split_at_rules(boxes: Sequence[Box], ink: np.ndarray, ys: Sequence[int],
+                   cols: Sequence[int], margin: int = 3) -> List[Optional[List[Box]]]:
+    """Cut text-line boxes at a ruled table's drawn rules.
+
+    The line detector reads a table row as one line straight across the
+    column rules ("1 | Policy specialist | 1"), so the recognizer reads the
+    cells as one string and the rules as letters. Each box is cut at the
+    vertical rules it crosses and trimmed to the row it sits in (never past
+    a horizontal rule), and each piece is shrunk to its ink. ``ink`` is the
+    page's ink mask. Returns the pieces of each box, or ``None`` for a box
+    that crosses no rule (left as it is). A box with no ink left (a rule
+    read as a line) gets no pieces.
+    """
+    h, w = ink.shape
+    out: List[Optional[List[Box]]] = []
+    for b in boxes:
+        x1, y1, x2, y2 = (int(v) for v in b)
+        cuts = [x for x in cols if x1 + margin < x < x2 - margin]
+        # A rule inside the box near its top or bottom is read as a letter.
+        # (One through its middle is no rule: text doesn't sit on a rule.)
+        edge = 0.3 * (y2 - y1)
+        crossed = [y for y in ys if y1 < y < y1 + edge or y2 - edge < y < y2]
+        if not cuts and not crossed:
+            out.append(None)
+            continue
+        cy = (y1 + y2) / 2
+        # The row holding the line's centre bounds it vertically.
+        for top, bot in zip(ys, ys[1:]):
+            if top <= cy < bot:
+                y1, y2 = max(y1, top + margin), min(y2, bot - margin + 1)
+                break
+        edges = [x1] + cuts + [x2]
+        pieces = []
+        for i, (a, c) in enumerate(zip(edges, edges[1:])):
+            a = a + margin if i > 0 else a
+            c = c - margin if i < len(edges) - 2 else c
+            a, c = max(0, a), min(w, c)
+            if c - a < 3 or y2 - y1 < 3:
+                continue
+            m = ink[max(0, y1):min(h, y2), a:c]
+            cols_ink = np.nonzero(m.sum(axis=0) >= 1)[0]
+            if len(cols_ink) < 2 or m.sum() < 6:
+                continue
+            pad = max(2, (y2 - y1) // 6)
+            pieces.append((max(a, a + int(cols_ink[0]) - pad), y1,
+                           min(c, a + int(cols_ink[-1]) + 1 + pad), y2))
+        out.append(pieces)
+    return out
 
 
 def _merge_edges(edges: Sequence[int], within: int) -> List[int]:

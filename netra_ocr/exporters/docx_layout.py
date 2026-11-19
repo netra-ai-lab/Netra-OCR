@@ -283,9 +283,12 @@ class _Writer:
         run = paragraph.add_run()
         inline = run.add_picture(io.BytesIO(png), width=Emu(cx), height=Emu(cy))._inline
         self.z += 1
+        # Behind the text: seals and signatures still show over it (the
+        # cut-outs are transparent), but a click on the page edits the text
+        # instead of grabbing a picture.
         anchor = parse_xml(
             f'<wp:anchor {nsdecls("wp")} distT="0" distB="0" distL="0" distR="0" simplePos="0" '
-            f'relativeHeight="{self.z}" behindDoc="0" locked="0" layoutInCell="0" allowOverlap="1">'
+            f'relativeHeight="{self.z}" behindDoc="1" locked="0" layoutInCell="0" allowOverlap="1">'
             f'<wp:simplePos x="0" y="0"/>'
             f'<wp:positionH relativeFrom="page"><wp:posOffset>{int(x * EMU_PER_PT)}</wp:posOffset></wp:positionH>'
             f'<wp:positionV relativeFrom="page"><wp:posOffset>{int(y * EMU_PER_PT)}</wp:posOffset></wp:positionV>'

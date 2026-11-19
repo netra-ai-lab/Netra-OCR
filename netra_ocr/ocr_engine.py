@@ -112,6 +112,7 @@ class KhmerOCRPipeline:
         regions = self.layout_analyzer.analyze(img_bgr)
         units = structure.plan_page((w, h), line_boxes, logo_boxes, regions, include_headers_footers,
                                     ink=structure.ink_mask(img_bgr))
+        line_boxes, line_crops, units = structure.split_table_lines(img_bgr, units, line_boxes, line_crops)
         whole_crops = structure.region_crops(img_bgr, units)
         texts = self._recognize(line_crops + whole_crops, batch_size)
         line_texts, whole_texts = texts[:len(line_boxes)], texts[len(line_boxes):]
