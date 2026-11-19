@@ -285,7 +285,7 @@ def main():
                              "page as it looked -- fonts, sizes, colours, placement, seals and signatures; "
                              "'reflow' writes a clean, re-flowed document.")
     parser.add_argument("--fonts",      default="system", choices=["system", "embed"],
-                        help="Original-layout Word output: name the standard Khmer fonts, Khmer OS Muol "
+                        help="Original-layout Word output: name the standard Khmer fonts, Khmer OS Muol Light "
                              "for titles and Khmer OS Siemreap for the rest (default), or embed the fonts "
                              "used for measuring instead.")
     parser.add_argument("--batch_size", type=int, default=16)

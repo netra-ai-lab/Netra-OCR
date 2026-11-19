@@ -191,9 +191,9 @@ def test_docx_rebuilds_the_page(enriched):
     xml = word.element.xml
     assert xml.count("<wp:anchor") >= 1                         # the seal floats on the page
     # Standard Khmer fonts by default, in every slot (Word draws Khmer with
-    # the ascii/hAnsi font): Khmer OS Muol for the Muol title, Khmer OS
+    # the ascii/hAnsi font): Khmer OS Muol Light for the Muol title, Khmer OS
     # Siemreap for the body.
-    for name in ("Khmer OS Muol", "Khmer OS Siemreap"):
+    for name in ("Khmer OS Muol Light", "Khmer OS Siemreap"):
         assert f'w:ascii="{name}" w:hAnsi="{name}" w:eastAsia="{name}" w:cs="{name}"' in xml
     assert "Noto" not in xml and 'w:cs="Moul"' not in xml
     assert 'w:lineRule="exact"' in xml
@@ -269,33 +269,65 @@ def test_runs_name_one_font_in_every_slot(enriched):
 
 
 def test_standard_khmer_fonts():
-    """Titles set in Muol become Khmer OS Muol; everything else Khmer OS Siemreap."""
-    assert F.FAMILIES["muol"].system_name == "Khmer OS Muol"
+    """Titles set in Muol become Khmer OS Muol Light; everything else Khmer OS Siemreap."""
+    assert F.FAMILIES["muol"].system_name == "Khmer OS Muol Light"
     assert F.FAMILIES["sans"].system_name == F.FAMILIES["serif"].system_name == "Khmer OS Siemreap"
 
 
-def test_sizes_are_converted_to_the_khmer_os_fonts(enriched):
-    """Khmer OS Siemreap draws far larger per point than Noto Sans Khmer: 12 pt
-    measured text is set at about 10 pt, its characters widened back to the
-    scan's line width. ``fonts="embed"`` keeps the measured size."""
+def _body_para(enriched, **kw):
     from docx import Document as Word
+    word = Word(io.BytesIO(export(enriched, "docx", **kw)[0]))
+    return word, next(p for p in word.paragraphs if p.text.startswith(BODY[0]))
+
+
+def test_sizes_are_converted_to_the_khmer_os_fonts(enriched):
+    """The measured size is Noto's size for the scan's line width; Word gets
+    Khmer OS Siemreap's size for that same width (Siemreap is ~8% wider per
+    point), with the character scale left as measured -- natural letters,
+    as tall as on the scan when it was typed in Siemreap. ``fonts="embed"``
+    keeps the measured size."""
     from docx.oxml.ns import qn
 
     def body_run(**kw):
-        word = Word(io.BytesIO(export(enriched, "docx", **kw)[0]))
-        para = next(p for p in word.paragraphs if p.text.startswith(BODY[0]))
-        rpr = para.runs[0]._r.rPr
+        rpr = _body_para(enriched, **kw)[1].runs[0]._r.rPr
         w = rpr.find(qn("w:w"))
         return int(rpr.find(qn("w:sz")).get(qn("w:val"))) / 2, int(w.get(qn("w:val"))) if w is not None else 100
 
     body = by_id(enriched, "body")["style"]
     k, s = F.FAMILIES[body["font"]].system_size_and_width(body["bold"])
     size, scale = body_run()
-    assert abs(size - body["size"] * k) <= 0.25 and size < body["size"]
+    assert abs(size - body["size"] * k * s) <= 0.25 and size < body["size"]
     size_e, scale_e = body_run(fonts="embed")
     assert size_e == body["size"]
-    # Same line width: size x scale is the measured one times the width factor.
+    # Same line width; the scale only absorbs rounding the size to half points.
     assert abs(size * scale - size_e * scale_e * k * s) <= 0.02 * size_e * scale_e
+    assert abs(scale - scale_e) <= 5
+
+
+def test_lines_are_raised_to_where_word_draws_them(enriched):
+    """Word puts the baseline of an exact-height line at 80% of the line, the
+    plan puts the core band in the middle: each paragraph is raised by the
+    difference, the first one through the page's top margin."""
+    from netra_ocr.exporters.docx_layout import SPACER_PT, WORD_BASELINE, _Writer
+
+    plan = PL.build_document(enriched)[0]
+    band = next(b for b in plan.bands if b.item is not None and b.item.block["id"] == "body")
+    body = band.item
+    writer = _Writer(enriched)
+    size = writer._word_size(body.style)
+    drop = writer._drop(body.style, body.pitch)
+    fam = F.FAMILIES[body.style["font"]]
+    assert drop == pytest.approx((WORD_BASELINE - 0.5) * body.pitch - fam.system_core_mid * size)
+    assert 2.0 < drop < 6.0                               # 12 pt text on a 26 pt pitch: ~4 pt
+
+    # The page starts higher than the plan's first line by the first band's
+    # rise (the letterhead row here), never by more.
+    word, para = _body_para(enriched)
+    margin = word.sections[0].top_margin.pt
+    assert plan.margins[2] - SPACER_PT - 8.0 < margin < plan.margins[2] - SPACER_PT
+    # The body's own gap above it shrinks by its drop (less what was already
+    # gained above it), so its lines land on the scan's.
+    assert para.paragraph_format.space_before.pt < band.space_before
 
 
 def test_appearance_survives_validation(enriched, tmp_path):

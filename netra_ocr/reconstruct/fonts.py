@@ -49,6 +49,11 @@ class Family:
     # scripts/calibrate_system_fonts.py; Khmer OS fonts draw far larger per
     # point than Noto, so without this the text comes out ~20% too big.
     system_fit: Tuple[Tuple[float, float], Tuple[float, float]] = ((1.0, 1.0), (1.0, 1.0))
+    # Middle of the core band (the base consonants) above the baseline, em:
+    # this font's and ``system_name``'s. Word places the baseline by its own
+    # rule, so placing a scanned line's core where it was needs this.
+    core_mid: float = 0.33
+    system_core_mid: float = 0.33
 
     def file(self, bold: bool) -> str:
         return os.path.join(FONT_DIR, self.bold if bold and self.bold else self.regular)
@@ -57,18 +62,20 @@ class Family:
         return self.system_fit[1 if bold else 0]
 
 
-# Word output names the standard Khmer Unicode fonts (``system_name``): Khmer
-# OS Muol for title text set in Muol, Khmer OS Siemreap for everything else.
+# Word output names the standard Khmer Unicode fonts (``system_name``), the
+# ones Cambodian documents are typed in: Khmer OS Muol Light for titles and
+# letterheads set in Muol, Khmer OS Siemreap for everything else. Not Khmer
+# OS Muol: Word drops vowel signs with it (ជាតិ comes out as ជាត).
 FAMILIES: Dict[str, Family] = {
-    "muol": Family("muol", "Moul-Regular.ttf", None, "Moul", "Khmer OS Muol", True,
+    "muol": Family("muol", "Moul-Regular.ttf", None, "Moul", "Khmer OS Muol Light", True,
                    expect=(0.91, 0.85, 0.95),
-                   system_fit=((1.021, 0.954), (1.021, 0.954))),
+                   system_fit=((1.003, 0.984), (1.003, 0.984)), core_mid=0.367, system_core_mid=0.367),
     "sans": Family("sans", "NotoSansKhmer-Regular.ttf", "NotoSansKhmer-Bold.ttf",
                    "Noto Sans Khmer", "Khmer OS Siemreap", True,
-                   system_fit=((0.823, 1.121), (0.819, 1.198))),
+                   system_fit=((0.823, 1.121), (0.819, 1.198)), core_mid=0.297, system_core_mid=0.359),
     "serif": Family("serif", "NotoSerifKhmer-Regular.ttf", "NotoSerifKhmer-Bold.ttf",
                     "Noto Serif Khmer", "Khmer OS Siemreap", False,
-                    system_fit=((0.937, 1.057), (0.929, 1.126))),
+                    system_fit=((0.937, 1.057), (0.929, 1.126)), core_mid=0.336, system_core_mid=0.359),
 }
 DEFAULT_FAMILY = "sans"
 # (family, bold) pairs tried for each line.

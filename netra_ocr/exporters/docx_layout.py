@@ -9,7 +9,7 @@ are floating pictures at their position on the page. Text stays real,
 editable Word text.
 
 By default (``fonts="system"``) text is set in the standard Khmer Unicode
-fonts every Khmer-language PC has: Khmer OS Muol for title text the scan
+fonts every Khmer-language PC has: Khmer OS Muol Light for title text the scan
 set in Muol, Khmer OS Siemreap for everything else; nothing is embedded.
 With ``fonts="embed"`` the fonts used for measuring (Moul, Noto Sans and
 Serif Khmer, OFL-licensed) are named and embedded instead; note that Word
@@ -29,6 +29,11 @@ from .docx_export import _import_docx
 EMU_PER_PT = 12700
 SPACER_PT = 1.0       # height of the empty paragraphs Word needs between tables
 BORDER = "808080"     # table grid lines: scanned grids are usually light
+# Word sets the baseline of a line with exact spacing at this fraction of
+# the line height from its top, whatever the font or size (measured in Word
+# 365: 0.80-0.81). The plan puts a line's core band in the middle of its
+# slot instead, so text would land ~0.3 of a line low without correction.
+WORD_BASELINE = 0.80
 
 
 # In "embed" mode Latin text is set in a standard font, not the Khmer face's
@@ -73,19 +78,17 @@ class _Writer:
 
         ``size`` and ``scale`` are measured against the bundled fonts; in
         "system" mode they're converted to the Khmer OS font named instead
-        (``Family.system_fit``), so its letters come out as tall and its
-        lines as wide as on the scan. The whole line takes the same factors,
-        Latin runs too, so Latin keeps its proportion to the Khmer around it.
+        (``_word_size``). The whole line takes the same factor, Latin runs
+        too, so Latin keeps its proportion to the Khmer around it.
         """
         from docx.oxml import OxmlElement
         from docx.oxml.ns import qn
 
         size = size or style["size"]
         if self.fonts == "system":
-            k, s = F.FAMILIES[style["font"]].system_size_and_width(bool(style.get("bold")))
-            wanted = size * k
-            size = max(1.0, round(wanted * 2) / 2)           # Word sizes are half points
-            scale = scale * s * wanted / size                # rounding the size changes width too
+            wanted = self._word_size(style, size, exact=True)
+            size = self._word_size(style, size)
+            scale = scale * wanted / size                    # rounding the size changes width too
         scale = int(round(min(600, max(1, scale))))          # Word's w:w range
 
         rpr = OxmlElement("w:rPr")
@@ -120,6 +123,30 @@ class _Writer:
         if khmer:
             self.used.add((style["font"], bool(style.get("bold"))))
         return rpr
+
+    def _word_size(self, style: dict, size: float = None, exact: bool = False) -> float:
+        """The point size Word is asked for (half points, unless ``exact``).
+
+        The measured size is the bundled font's size that matches the scan's
+        line width. In "system" mode it becomes the Khmer OS font's size for
+        the same width (size factor x width factor of ``system_fit``): most
+        Khmer documents are set in the Khmer OS fonts, and then this is their
+        own size, with letters as tall as on the scan and no stretching.
+        """
+        size = size or style["size"]
+        if self.fonts == "system":
+            k, s = F.FAMILIES[style["font"]].system_size_and_width(bool(style.get("bold")))
+            size *= k * s
+        return size if exact else max(1.0, round(size * 2) / 2)
+
+    def _drop(self, style: dict, pitch: float) -> float:
+        """How far below the middle of its line Word draws a line's core band
+        (pt): the baseline sits at ``WORD_BASELINE`` of the line, the core's
+        middle that font's ``core_mid`` above it."""
+        fam = F.FAMILIES[style["font"]]
+        mid = fam.system_core_mid if self.fonts == "system" else fam.core_mid
+        pitch = max(0.7, pitch)
+        return (WORD_BASELINE - 0.5) * pitch - mid * self._word_size(style)
 
     def _run(self, paragraph, text: str, style: dict, scale: int = 100):
         """Add ``text`` as one run per script; returns the last run."""
@@ -166,12 +193,16 @@ class _Writer:
         self.last_was_table = False
         return p
 
-    def para(self, container, p: Para, paragraph=None):
+    def para(self, container, p: Para, paragraph=None, ahead: float = 0.0) -> float:
+        """Write ``p``. ``ahead`` is how far Word's flow is above the plan's
+        here (pt); the paragraph is raised by its ``_drop`` so its lines'
+        cores land where they were on the scan. Returns the new ``ahead``."""
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.shared import Pt
 
         para = paragraph if paragraph is not None else container.add_paragraph()
-        self._exact(para, p.pitch, p.space_before)
+        space = max(0.0, p.space_before + ahead - self._drop(p.style, p.pitch))
+        self._exact(para, p.pitch, space)
         pf = para.paragraph_format
         pf.alignment = {"center": WD_ALIGN_PARAGRAPH.CENTER, "right": WD_ALIGN_PARAGRAPH.RIGHT,
                         "justify": WD_ALIGN_PARAGRAPH.JUSTIFY}.get(p.align, WD_ALIGN_PARAGRAPH.LEFT)
@@ -190,7 +221,7 @@ class _Writer:
                 if i < len(lines) - 1:
                     run.add_break()
         self.last_was_table = False
-        return para
+        return p.space_before + ahead - space
 
     # ── tables ──────────────────────────────────────────────────────────
     def _table_props(self, table, widths, borders: bool, indent: float = 0.0, padding: float = 0.0):
@@ -235,37 +266,53 @@ class _Writer:
             for cell in col.cells:
                 cell.width = Pt(widths[i])
 
-    def _before_table(self, space: float):
+    def _before_table(self, space: float) -> float:
         """Tables can't carry space before, and two tables in a row merge:
-        a spacer paragraph takes the gap."""
+        a spacer paragraph takes the gap. Returns the height inserted."""
         if space >= SPACER_PT or self.last_was_table:
-            self.spacer(self.word, max(SPACER_PT, space))
-            return max(0.0, space - max(SPACER_PT, space))
+            height = max(SPACER_PT, space)
+            self.spacer(self.word, height)
+            return height
         return 0.0
 
-    def columns(self, band: Band, left_margin: float):
+    def columns(self, band: Band, left_margin: float, ahead: float = 0.0) -> float:
+        """Side-by-side blocks as one borderless table row. The row is raised
+        enough for the column whose first paragraph must rise the most."""
         widths = [c.x2 - c.x1 for c in band.columns]
-        self._before_table(band.space_before)
+        lift = max([0.0] + [self._drop(c.items[0].style, c.items[0].pitch) - c.items[0].space_before
+                            for c in band.columns if c.items])
+        space = band.space_before + ahead
+        inserted = self._before_table(space - lift)
+        start = space - inserted                     # plan's table top minus Word's
         table = self.word.add_table(rows=1, cols=len(widths))
         self._table_props(table, widths, borders=False, indent=band.columns[0].x1 - left_margin)
+        plan_h, word_h = 0.0, 0.0
         for ci, col in enumerate(band.columns):
             cell = table.cell(0, ci)
             first = cell.paragraphs[0]
             if not col.items:
                 self._exact(first, SPACER_PT)
                 self._mark_size(first)
+                word_h = max(word_h, SPACER_PT)
+                continue
+            col_ahead, h = start, 0.0
             for k, item in enumerate(col.items):
-                self.para(cell, item, paragraph=first if k == 0 else None)
+                col_ahead = self.para(cell, item, paragraph=first if k == 0 else None, ahead=col_ahead)
+                h += item.space_before + (item.bottom - item.top)
+            plan_h = max(plan_h, h)
+            word_h = max(word_h, h + start - col_ahead)
         self.last_was_table = True
+        return plan_h + start - word_h
 
-    def table(self, t: Table, space_before: float, left_margin: float):
+    def table(self, t: Table, space_before: float, left_margin: float, ahead: float = 0.0) -> float:
         """A table with the scan's column widths and exact row heights, text
         aligned in each cell (across and up/down) as on the scan."""
         from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.shared import Pt
 
-        self._before_table(space_before)
+        space = space_before + ahead
+        inserted = self._before_table(space)
         nrows, ncols = len(t.cells), len(t.col_widths)
         table = self.word.add_table(rows=nrows, cols=ncols)
         self._table_props(table, t.col_widths, borders=t.borders, indent=t.left - left_margin,
@@ -283,14 +330,21 @@ class _Writer:
                     c.valign, WD_CELL_VERTICAL_ALIGNMENT.CENTER)
                 p = cell.paragraphs[0]
                 lines = c.lines or [""]
-                pitch = min(natural_pitch(style), height / len(lines))
-                self._exact(p, max(style["size"] * 1.05, pitch))
+                pitch = max(style["size"] * 1.05, min(natural_pitch(style), height / len(lines)))
+                self._exact(p, pitch)
+                # Word draws the core below the middle of its line (``_drop``):
+                # space after the text lifts it back, as far as the row has room.
+                room = max(0.0, height - len(lines) * pitch)
+                drop = self._drop(style, pitch)
+                if drop > 0 and c.valign != "top":
+                    p.paragraph_format.space_after = Pt(min(room, 2 * drop if c.valign == "center" else drop))
                 p.paragraph_format.alignment = align.get(c.align, WD_ALIGN_PARAGRAPH.LEFT)
                 for li, line in enumerate(lines):
                     run = self._run(p, line, style, c.scale)
                     if li < len(lines) - 1:
                         run.add_break()
         self.last_was_table = True
+        return space - inserted                       # rows are exact: the table ends on plan
 
     # ── floating pictures ───────────────────────────────────────────────
     def picture(self, paragraph, asset_id: str, x: float, y: float, w: float, h: float):
@@ -345,9 +399,18 @@ class _Writer:
                     self._mark_size(para)
                     break
         left, right, top, bottom = plan.margins
+        # The first text may need to sit higher than the plan's top margin
+        # (``_drop``): the margin gives way, and the flow starts that far ahead.
+        lift = 0.0
+        if plan.bands:
+            b = plan.bands[0]
+            items = [b.item] if isinstance(b.item, Para) else [c.items[0] for c in b.columns if c.items]
+            lift = max([0.0] + [self._drop(it.style, it.pitch) - b.space_before
+                                - (it.space_before if b.item is None else 0.0) for it in items])
+        lift = min(lift, max(0.0, top - SPACER_PT))
         section.page_width, section.page_height = Pt(plan.width), Pt(plan.height)
         section.left_margin, section.right_margin = Pt(left), Pt(right)
-        section.top_margin = Pt(max(0.0, top - SPACER_PT))
+        section.top_margin = Pt(max(0.0, top - SPACER_PT - lift))
         section.bottom_margin = Pt(bottom)
         section.header_distance = section.footer_distance = Pt(0)
         section.gutter = Pt(0)
@@ -357,14 +420,15 @@ class _Writer:
         for f in plan.floats:
             self.picture(holder, f.image, f.x, f.y, f.width, f.height)
 
+        ahead = lift
         for band in plan.bands:
             if band.item is None:
-                self.columns(band, left)
+                ahead = self.columns(band, left, ahead)
             elif isinstance(band.item, Para):
                 band.item.space_before = band.space_before
-                self.para(self.word, band.item)
+                ahead = self.para(self.word, band.item, ahead=ahead)
             else:
-                self.table(band.item, band.space_before, left)
+                ahead = self.table(band.item, band.space_before, left, ahead)
         if self.last_was_table:
             self.spacer(self.word, SPACER_PT)
 

@@ -33,7 +33,7 @@ sys.path.insert(0, ROOT)
 from netra_ocr.reconstruct import fonts as F          # noqa: E402
 from netra_ocr.reconstruct.style import measure       # noqa: E402
 
-FILES = {"Khmer OS Siemreap": "KhmerOSsiemreap.ttf", "Khmer OS Muol": "KhmerOSmuol.ttf"}
+FILES = {"Khmer OS Siemreap": "KhmerOSsiemreap.ttf", "Khmer OS Muol Light": "KhmerOSmuollight.ttf"}
 PX = 64
 
 
@@ -52,6 +52,11 @@ def render(text, path):
     return np.asarray(img), font.getlength(text)
 
 
+def core_mid(ink) -> float:
+    """Height of the core band's middle above the baseline, in em."""
+    return (2 * PX - (ink.top + ink.bottom) / 2) / PX
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--font-dir", default="C:/Windows/Fonts")
@@ -62,9 +67,9 @@ def main():
     print(f"{len(lines)} Khmer lines")
     for key, fam in F.FAMILIES.items():
         system = os.path.join(args.font_dir, FILES[fam.system_name])
-        fits = []
+        fits, mids, sys_mid = [], [], []
         for bold in (False, True):
-            size, width = [], []
+            size, width, mid = [], [], []
             for text in lines:
                 a, wa = render(text, fam.file(bold))
                 b, wb = render(text, system)
@@ -73,8 +78,12 @@ def main():
                     k = ma.core / mb.core
                     size.append(k)
                     width.append(wa / (wb * k))
+                    mid.append(core_mid(ma))
+                    sys_mid.append(core_mid(mb))
             fits.append((round(float(np.median(size)), 3), round(float(np.median(width)), 3)))
-        print(f'"{key}": {fam.system_name}: system_fit=({fits[0]}, {fits[1]})')
+            mids.append(round(float(np.median(mid)), 3))
+        print(f'"{key}": {fam.system_name}: system_fit=({fits[0]}, {fits[1]}), '
+              f'core_mid={tuple(mids)}, system_core_mid={round(float(np.median(sys_mid)), 3)}')
 
 
 if __name__ == "__main__":

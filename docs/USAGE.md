@@ -89,7 +89,7 @@ Word output rebuilds each page as it looked, not just what it says. The
   underlines, list dashes and a seal's red over the text are.
 
 The `.docx` keeps real, editable text. Pictures float behind the text at their
-place on the page. Text is set in the standard Khmer Unicode fonts: Khmer OS Muol
+place on the page. Text is set in the standard Khmer Unicode fonts: Khmer OS Muol Light
 for titles set in Muol, Khmer OS Siemreap for everything else. A block you edit is
 re-flowed instead of keeping the scan's line breaks.
 
