@@ -136,6 +136,45 @@ def render(text: str, family: str, bold: bool, size: int = REF_PX) -> np.ndarray
     return arr[max(0, rows[0] - pad): rows[-1] + 1 + pad]
 
 
+def _font_dirs() -> List[str]:
+    home = os.path.expanduser("~")
+    dirs = [os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Fonts"),
+            "/usr/share/fonts", "/usr/local/share/fonts", os.path.join(home, ".fonts"),
+            os.path.join(home, ".local", "share", "fonts"), "/Library/Fonts",
+            os.path.join(home, "Library", "Fonts")]
+    return [d for d in dirs if d and os.path.isdir(d)]
+
+
+def _squash_name(name: str) -> str:
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+@lru_cache(maxsize=8)
+def system_font_file(name: str) -> Optional[str]:
+    """Path of an installed font named ``name`` ("Khmer OS Siemreap"), found
+    by file name (KhmerOSsiemreap.ttf on Windows, KhmerOS_siemreap.ttf in
+    Linux packages), or None."""
+    want = _squash_name(name)
+    for d in _font_dirs():
+        for root, _, files in os.walk(d):
+            for f in files:
+                stem, ext = os.path.splitext(f)
+                if ext.lower() in (".ttf", ".otf") and _squash_name(stem) == want:
+                    return os.path.join(root, f)
+    return None
+
+
+def system_width_pt(text: str, family: str, size_pt: float) -> Optional[float]:
+    """Advance width of ``text`` in the family's installed Word font
+    (``system_name``) at ``size_pt``, the way Word sets it; None when that
+    font isn't installed here or text can't be shaped."""
+    path = system_font_file(FAMILIES[family].system_name)
+    if path is None or not HAS_SHAPING:
+        return None
+    return _font(path, REF_PX).getlength(text) * size_pt / REF_PX
+
+
 def text_width_pt(text: str, family: str, bold: bool, size_pt: float) -> float:
     """Advance width of ``text`` set at ``size_pt`` (points), as Word would lay it out."""
     khmer_path, latin_path = run_fonts(family, bold)

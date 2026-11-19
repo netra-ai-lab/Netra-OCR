@@ -108,6 +108,37 @@ def _block_size_px(items, key) -> float:
     return wsize if 0.55 * h <= wsize <= 1.5 * h else h
 
 
+# A block may be at most this much larger than its line boxes say.
+SIZE_CAP = 1.6
+
+
+def _cap_sizes(styled, page_dpi: float) -> None:
+    """Rein in sizes that its own line boxes rule out.
+
+    The detector's line boxes are about the same multiple of the type size
+    all over a page; the page's body text says what that multiple is. A
+    block measured far larger than its boxes allow went wrong -- on heavy
+    bold print the core band can't be found and the whole box is taken for
+    it, and a word of a few letters has no line width to check a size
+    against -- so it gets the size its boxes imply instead. A block of only
+    such short words is held to its boxes from below too.
+    """
+    ratios = []
+    for b, items, st, _ in styled:
+        if b["type"] in BODY_TYPES:
+            em = st["size"] * page_dpi / 72
+            ratios += [(line["bbox"][3] - line["bbox"][1]) / em for _, line, _, _ in items]
+    if len(ratios) < 5:
+        return
+    per_em = float(np.median(ratios))
+    for b, items, st, _ in styled:
+        heights = [line["bbox"][3] - line["bbox"][1] for _, line, _, _ in items]
+        implied = float(np.median(heights)) / per_em * 72 / page_dpi
+        short = all(len(line.get("text", "").strip()) < 6 for _, line, _, _ in items)
+        if st["size"] > SIZE_CAP * implied or (short and st["size"] < implied / SIZE_CAP):
+            st["size"] = _round_size(implied)
+
+
 def enrich_page(page: dict, blocks: List[dict], img_bgr: np.ndarray, assets,
                 dpi: Optional[float] = None, graphics_layer: bool = True) -> None:
     """Measure one page's look in place. ``blocks`` are that page's blocks."""
@@ -209,6 +240,7 @@ def enrich_page(page: dict, blocks: List[dict], img_bgr: np.ndarray, assets,
             if b["type"] in BODY_TYPES and abs(st["size"] / body_size - 1) <= 0.15:
                 st["size"] = _round_size(body_size)
         page["body_size"] = _round_size(body_size)
+    _cap_sizes(styled, page_dpi)
 
     for b, items, st, _ in styled:
         for _, line, ink, _ in items:

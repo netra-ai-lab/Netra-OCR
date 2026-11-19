@@ -330,6 +330,67 @@ def test_lines_are_raised_to_where_word_draws_them(enriched):
     assert para.paragraph_format.space_before.pt < band.space_before
 
 
+def _para(rows, align="justify"):
+    rows = [PL.Row(text=f"row {i}", x1=x1, x2=x2, centre=100 + 20 * i) for i, (x1, x2) in enumerate(rows)]
+    return PL.Para(block={"id": "p"}, rows=rows, style={"font": "sans", "bold": False, "size": 12.0},
+                   align=align, pitch=20, top=90, bottom=90 + 20 * len(rows))
+
+
+def test_rows_that_stop_lining_up_get_a_paragraph_of_their_own():
+    """Word would move a centred row to the paragraph's left edge, and stretch
+    a justified row that stops short to the right edge, with wide gaps."""
+    full = (72, 520)
+    whole = _para([full, full, full, (72, 300)])
+    assert PL._split_irregular(whole, 9) == [whole]
+
+    short = PL._split_irregular(_para([full, (72, 300), full, (72, 200)]), 9)
+    assert [len(p.rows) for p in short] == [2, 2]          # the short row ends its paragraph
+
+    centred = PL._split_irregular(_para([full, full, (200, 390), full, full]), 9)
+    assert [len(p.rows) for p in centred] == [2, 1, 2]
+    assert centred[1].rows[0].x1 == 200
+
+
+def test_size_is_capped_by_the_line_boxes():
+    """A block measured far larger than its line boxes allow (heavy bold print,
+    a word too short to check against its width) gets the size they imply."""
+    from netra_ocr.reconstruct import _cap_sizes
+
+    def block(btype, size, height, text="ក" * 20, n=3):
+        lines = [{"bbox": [0, 0, 100, height], "text": text} for _ in range(n)]
+        return ({"type": btype}, [(None, ln, None, None) for ln in lines], {"size": size}, None)
+
+    dpi = 144                                             # 2 px per pt
+    body = [block("paragraph", 12.0, 36) for _ in range(3)]  # boxes 1.5 em
+    big = block("paragraph", 30.0, 36)                    # boxes say 12 pt
+    tiny = block("heading", 6.0, 54, text="និង", n=1)       # a short word: 18 pt
+    fine = block("heading", 16.0, 48)                     # within reach: kept
+    _cap_sizes(body + [big, tiny, fine], dpi)
+    assert [b[2]["size"] for b in body] == [12.0] * 3
+    assert big[2]["size"] == 12.0
+    assert tiny[2]["size"] == 18.0
+    assert fine[2]["size"] == 16.0
+
+
+def test_rows_are_never_widened_to_match_the_khmer_os_font(enriched, monkeypatch):
+    """Rows are narrowed when Siemreap sets them wider than planned (Word would
+    wrap them) and left alone when it sets them narrower."""
+    from netra_ocr.exporters.docx_layout import _Writer
+
+    style = {"font": "sans", "bold": False, "size": 12.0}
+    text = "កម្ពុជា"
+    planned = F.text_width_pt(text, "sans", False, 12.0)
+    writer = _Writer(enriched)
+    # At the converted size a calibrated Siemreap is as wide as planned.
+    monkeypatch.setattr(F, "system_width_pt", lambda *a: planned * 1.04)
+    assert writer._width_fix(text, style) == pytest.approx(1 / 1.04)
+    monkeypatch.setattr(F, "system_width_pt", lambda *a: planned * 0.96)
+    assert writer._width_fix(text, style) == 1.0
+    monkeypatch.setattr(F, "system_width_pt", lambda *a: None)   # font not installed
+    assert writer._width_fix(text, style) == 1.0
+    assert _Writer(enriched, fonts="embed")._width_fix(text, style) == 1.0
+
+
 def test_appearance_survives_validation(enriched, tmp_path):
     enriched.save(str(tmp_path))
     again = Document.load(str(tmp_path))

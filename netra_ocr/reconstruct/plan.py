@@ -24,6 +24,13 @@ DEFAULT_STYLE = {"font": F.DEFAULT_FAMILY, "size": 11.0, "bold": False, "color":
 SCALE_RANGE = (70, 130)        # Word character scale limits we allow, %
 FIT_MARGIN = 0.97              # keep each line a little narrower than its room
                                # (Latin text is set in Arial, whose widths differ a little)
+# A justified line is stretched to the column by widening its spaces, and
+# Khmer lines have few spaces: left to justification alone, the slack piles
+# into one or two wide gaps. This share of it goes into the letters instead
+# (no further than JUSTIFY_MAX_SCALE); measured on 13 test pages, Word's gaps
+# then come out as wide as the scan's.
+JUSTIFY_SHARE = 0.5
+JUSTIFY_MAX_SCALE = 110
 
 
 @dataclass
@@ -311,8 +318,9 @@ def _fit(para: Para, room: float) -> None:
         if natural <= 0:
             continue
         want = 100 * (r.x2 - r.x1) / natural
-        if para.align == "justify" and i < len(para.rows) - 1:
-            want = min(want, 100)   # justification stretches it the rest of the way
+        if para.align == "justify" and i < len(para.rows) - 1 and want > 100:
+            # justification stretches it the rest of the way
+            want = min(100 + JUSTIFY_SHARE * (want - 100), JUSTIFY_MAX_SCALE)
         avail = room - para.left - max(0.0, para.first if i == 0 else 0.0) - para.right
         if i == 0 and para.first < 0:
             avail -= para.first
@@ -381,6 +389,35 @@ def _split_beside(items: list) -> list:
             if changed:
                 break
     return items
+
+
+def _split_irregular(p: Para, tol: float) -> List[Para]:
+    """Split a left or justified paragraph where its rows stop lining up.
+
+    Word gives every line of a paragraph after the first the same left edge,
+    and stretches every justified line that ends in a line break to the
+    right edge. A row the scan set elsewhere -- centred under the others,
+    indented, or a justified row that stops short -- would come out moved
+    and stretched, with wide gaps between its words. Such a row gets a
+    paragraph of its own (where it is, and as a paragraph's last line it is
+    never stretched); the rows after it start a new one.
+    """
+    rows = p.rows
+    if p.align not in ("left", "justify") or not p.keep_lines or len(rows) < 2:
+        return [p]
+    left = float(np.median([r.x1 for r in rows[1:]]))
+    right = max(r.x2 for r in rows[:-1])
+    off = [abs(r.x1 - left) > 2 * tol for r in rows]
+    parts = [[rows[0]]]
+    for i in range(1, len(rows)):
+        prev = rows[i - 1]
+        short = p.align == "justify" and prev.x2 < right - 3 * tol
+        if off[i] or (off[i - 1] and i - 1 > 0) or short:
+            parts.append([])
+        parts[-1].append(rows[i])
+    if len(parts) == 1:
+        return [p]
+    return [_part(p, rs) for rs in parts]
 
 
 def _band_columns(items: list, gap: float) -> List[list]:
@@ -474,6 +511,9 @@ def build(page: dict, blocks: Sequence[dict]) -> PagePlan:
     right = min(page_w - 6.0, right)
 
     items = _split_beside(items)
+    tol = 0.015 * page_w
+    items = [part for it in items
+             for part in (_split_irregular(it, tol) if isinstance(it, Para) else [it])]
 
     # Bands: items whose cores overlap vertically sit side by side.
     items.sort(key=lambda it: _core(it)[0])

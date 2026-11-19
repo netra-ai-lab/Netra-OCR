@@ -65,7 +65,7 @@ class _Writer:
         self.last_was_table = False
 
     # ── runs and paragraphs ─────────────────────────────────────────────
-    def _rpr(self, style: dict, scale: int = 100, size: float = None, khmer: bool = True):
+    def _rpr(self, style: dict, scale: float = 100, size: float = None, khmer: bool = True):
         """A complete ``w:rPr`` in schema order (Word rejects misordered ones).
 
         Each run names one font in every slot. Word draws Khmer with the
@@ -148,7 +148,36 @@ class _Writer:
         pitch = max(0.7, pitch)
         return (WORD_BASELINE - 0.5) * pitch - mid * self._word_size(style)
 
-    def _run(self, paragraph, text: str, style: dict, scale: int = 100):
+    def _width_fix(self, text: str, style: dict) -> float:
+        """Factor that makes ``text`` exactly as wide in Word as planned.
+
+        ``system_fit`` converts sizes with a median width factor; on a given
+        line Khmer OS Siemreap still comes out up to ~3% wider or narrower
+        than that. Too wide and Word wraps the row: its last word drops to a
+        line of its own and the stretched remainder gets huge gaps. When the
+        Khmer OS font is installed here, each row is measured in it instead.
+        Rows are only ever narrowed: Word's own shaping differs a little from
+        the measurement, and a row a little narrow costs nothing (justified
+        rows are stretched to the edge anyway) where one too wide wraps.
+        """
+        if self.fonts != "system":
+            return 1.0
+        size = style["size"]
+        k, s = F.FAMILIES[style["font"]].system_size_and_width(bool(style.get("bold")))
+        planned = predicted = 0.0
+        for part, khmer in F.script_runs(text):
+            bundled = F.text_width_pt(part, style["font"], bool(style.get("bold")), size)
+            planned += bundled
+            if khmer:
+                w = F.system_width_pt(part, style["font"], size * k * s)
+                if w is None:
+                    return 1.0
+                predicted += w
+            else:
+                predicted += bundled * k * s
+        return min(1.0, planned / predicted) if predicted > 0 else 1.0
+
+    def _run(self, paragraph, text: str, style: dict, scale: float = 100):
         """Add ``text`` as one run per script; returns the last run."""
         run = None
         for part, khmer in F.script_runs(text) or [("", True)]:
@@ -211,7 +240,8 @@ class _Writer:
         pf.first_line_indent = Pt(p.first)
         if p.keep_lines:
             for i, row in enumerate(p.rows):
-                run = self._run(para, row.text, p.style, row.scale)
+                scale = row.scale * self._width_fix(row.text, p.style)
+                run = self._run(para, row.text, p.style, scale)
                 if i < len(p.rows) - 1:
                     run.add_break()
         else:
