@@ -191,7 +191,9 @@ def test_docx_rebuilds_the_page(enriched):
 
     xml = word.element.xml
     assert xml.count("<wp:anchor") >= 1                         # the seal floats on the page
-    assert 'w:cs="Moul"' in xml                                 # title font
+    muol = F.FAMILIES["muol"].name
+    # Title font, in every slot: Word draws Khmer with the ascii/hAnsi font.
+    assert f'w:ascii="{muol}" w:hAnsi="{muol}" w:eastAsia="{muol}" w:cs="{muol}"' in xml
     assert 'w:lineRule="exact"' in xml
     texts = [p.text for p in word.paragraphs]
     assert "\n".join(BODY) in texts                             # source line breaks kept
@@ -211,14 +213,69 @@ def test_docx_rebuilds_the_page(enriched):
             if emb.tag in (qn("w:embedRegular"), qn("w:embedBold")):
                 embedded[(font.get(qn("w:name")), emb.tag)] = (emb.get(qn("w:fontKey")),
                                                               targets[emb.get(qn("r:id"))])
-    assert ("Moul", qn("w:embedRegular")) in embedded
-    key_guid, target = embedded[("Moul", qn("w:embedRegular"))]
+    assert (muol, qn("w:embedRegular")) in embedded
+    key_guid, target = embedded[(muol, qn("w:embedRegular"))]
     blob = bytearray(z.read("word/" + target))
     key = bytes.fromhex(key_guid.strip("{}").replace("-", ""))[::-1]
     for i in range(32):
         blob[i] ^= key[i % 16]
     with open(F.FAMILIES["muol"].file(False), "rb") as fh:
         assert bytes(blob) == fh.read()
+
+
+def test_khmer_and_latin_runs_name_one_font_each(enriched):
+    """A Khmer run names its Khmer font in every slot (Word draws Khmer with
+    the ascii font; Arial there falls back to DaunPenh), a Latin run Arial."""
+    from docx import Document as Word
+    from docx.oxml.ns import qn
+
+    b = by_id(enriched, "body")
+    saved = b["text"]
+    b["text"] = "ក្រសួង ABC 123"
+    try:
+        word = Word(io.BytesIO(export(enriched, "docx")[0]))
+    finally:
+        b["text"] = saved
+    runs = {}
+    for r in word.element.body.iter(qn("w:r")):
+        t, fonts = r.find(qn("w:t")), r.find(qn("w:rPr") + "/" + qn("w:rFonts"))
+        if t is not None and fonts is not None and t.text.strip():
+            runs[t.text.strip()] = {fonts.get(qn(a)) for a in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs")}
+    sans = F.FAMILIES[b["style"]["font"]].name
+    assert runs["ក្រសួង"] == {sans}
+    assert runs["ABC 123"] == {"Arial"}
+
+
+def _ttf_family(path: str) -> str:
+    """Family name (name ID 1, Windows Unicode) read straight from a TTF."""
+    import struct
+    with open(path, "rb") as fh:
+        data = fh.read()
+    (num,) = struct.unpack(">H", data[4:6])
+    for i in range(num):
+        tag, _, offset, _ = struct.unpack(">4sIII", data[12 + 16 * i: 28 + 16 * i])
+        if tag == b"name":
+            _, count, strings = struct.unpack(">HHH", data[offset: offset + 6])
+            for j in range(count):
+                pid, _, _, nid, length, off = struct.unpack(
+                    ">6H", data[offset + 6 + 12 * j: offset + 18 + 12 * j])
+                if pid == 3 and nid == 1:
+                    start = offset + strings + off
+                    return data[start: start + length].decode("utf-16-be")
+    raise AssertionError(f"no family name in {path}")
+
+
+@pytest.mark.parametrize("key", sorted(F.FAMILIES))
+def test_embedded_fonts_have_names_of_their_own(key):
+    """Word draws an installed font in place of an embedded one of the same
+    name: the bundled files must carry the name the document asks for, and
+    not one an old installed Khmer font has."""
+    fam = F.FAMILIES[key]
+    for bold in {False, bool(fam.bold)}:
+        name = _ttf_family(fam.file(bold))
+        assert name == fam.name
+        assert name not in ("Moul", "Noto Sans Khmer", "Noto Serif Khmer", "Khmer Moul")
+        assert not name.startswith("Khmer OS") and name != fam.system_name
 
 
 def test_system_fonts_mode(enriched):

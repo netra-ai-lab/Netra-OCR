@@ -48,13 +48,17 @@ class Family:
         return os.path.join(FONT_DIR, self.bold if bold and self.bold else self.regular)
 
 
+# The bundled files are Moul, Noto Sans Khmer and Noto Serif Khmer renamed
+# (scripts/rename_fonts.py): Word prefers an installed font over an embedded
+# one of the same name, and old, incompatible builds of all three are common
+# on Khmer PCs. Names no one has installed make Word use the embedded copy.
 FAMILIES: Dict[str, Family] = {
-    "muol": Family("muol", "Moul-Regular.ttf", None, "Moul", "Khmer OS Muol Light", True,
+    "muol": Family("muol", "Moul-Regular.ttf", None, "Netra Moul", "Khmer OS Muol Light", True,
                    expect=(0.91, 0.85, 0.95)),
     "sans": Family("sans", "NotoSansKhmer-Regular.ttf", "NotoSansKhmer-Bold.ttf",
-                   "Noto Sans Khmer", "Khmer OS Siemreap", True),
+                   "Netra Khmer Sans", "Khmer OS Siemreap", True),
     "serif": Family("serif", "NotoSerifKhmer-Regular.ttf", "NotoSerifKhmer-Bold.ttf",
-                    "Noto Serif Khmer", "Khmer OS Battambang", False),
+                    "Netra Khmer Serif", "Khmer OS Battambang", False),
 }
 DEFAULT_FAMILY = "sans"
 # (family, bold) pairs tried for each line.

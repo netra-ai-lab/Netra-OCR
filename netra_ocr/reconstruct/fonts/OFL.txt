@@ -4,6 +4,12 @@ Moul-Regular.ttf: Copyright 2020 The Moul Project Authors (https://github.com/da
 NotoSansKhmer-Regular.ttf, NotoSansKhmer-Bold.ttf: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/khmer)
 NotoSerifKhmer-Regular.ttf, NotoSerifKhmer-Bold.ttf: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/khmer)
 
+These are Modified Versions: only their names were changed (by
+scripts/rename_fonts.py), to "Netra Moul", "Netra Khmer Sans" and "Netra
+Khmer Serif", so that a word processor uses these embedded copies rather
+than older installed builds of the same name. Outlines and metrics are
+unchanged. No Reserved Font Name is declared for these fonts.
+
 These fonts are licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
 https://openfontlicense.org

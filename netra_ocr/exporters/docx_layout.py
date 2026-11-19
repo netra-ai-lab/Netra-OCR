@@ -9,7 +9,10 @@ are floating pictures at their position on the page. Text stays real,
 editable Word text.
 
 The fonts used for measuring are embedded (they're OFL-licensed), so the
-document renders as intended on machines that don't have them; with
+document renders as intended on machines that don't have them. They carry
+names of their own ("Netra Khmer Sans", ...): Word would draw an installed
+font of the same name instead, and old builds of Moul and Noto Sans Khmer
+with other metrics are common on Khmer PCs. With
 ``fonts="system"`` the usual Khmer system fonts are named instead (Khmer
 OS Siemreap, Khmer OS Muol Light, ...) and nothing is embedded.
 """
@@ -30,9 +33,8 @@ BORDER = "808080"     # table grid lines: scanned grids are usually light
 
 
 # Latin text is set in a standard font, not the Khmer face's Latin letters:
-# a machine may have its own build of the Khmer font installed, which a word
-# processor prefers over the embedded copy, and some builds (Debian's Noto
-# Sans Khmer, for one) have no Latin letters at all.
+# in "system" mode the named Khmer font may be a build with no Latin letters
+# at all (Debian's Noto Sans Khmer, for one, or old Windows builds of Moul).
 # Arial throughout: the Latin letters of the Khmer OS fonts are sans-serif,
 # and so are the digits in most Khmer forms and tables.
 LATIN_FONTS = {"sans": "Arial", "serif": "Arial", "muol": "Arial"}
@@ -61,16 +63,22 @@ class _Writer:
     def _rpr(self, style: dict, scale: int = 100, size: float = None, khmer: bool = True):
         """A complete ``w:rPr`` in schema order (Word rejects misordered ones).
 
-        Non-Khmer runs name their Latin font in every slot: some renderers
-        classify Latin next to Khmer as complex script and would draw it
-        with the Khmer face, which may have no Latin letters.
+        Each run names one font in every slot. Word draws Khmer with the
+        ascii/hAnsi font, not the complex-script one, so a Khmer run with
+        Arial there would come out in Word's fallback (DaunPenh, which is
+        far smaller); LibreOffice uses the complex-script slot. Non-Khmer
+        runs use the Latin font everywhere for the mirror reason: some
+        renderers classify Latin next to Khmer as complex script and would
+        draw it with the Khmer face, which may have no Latin letters.
         """
         from docx.oxml import OxmlElement
         from docx.oxml.ns import qn
 
         rpr = OxmlElement("w:rPr")
         cs, latin = _font_names(style, self.fonts)
-        if not khmer:
+        if khmer:
+            latin = cs
+        else:
             cs = latin
         fonts = OxmlElement("w:rFonts")
         for attr, name in (("w:ascii", latin), ("w:hAnsi", latin), ("w:eastAsia", latin), ("w:cs", cs)):
