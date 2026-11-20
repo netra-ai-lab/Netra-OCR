@@ -16,7 +16,7 @@ paired with pluggable text detectors (YOLO, Tesseract, classic CV).
     server/         the web app and REST API (netra_ocr serve)
 """
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 
 from .ocr_engine import KhmerOCRPipeline
 
