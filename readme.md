@@ -49,7 +49,7 @@ This repository presents Netra-OCR, a **19M-parameter** text-line recognizer for
 
 On the public KHOB benchmark, Netra-OCR reaches **0.96% CER**, against 5.12% for Tesseract 5, the next best. On phone photos of legal documents it reaches **5.31%**, against 41.78% for Tesseract. An optional blockwise parallel decoder gives the same output **1.55× faster** in PyTorch.
 
-Around the model, the package adds text-line and layout detection, PDF input, a browser editor and Word export, and ships as one Docker image.
+Around the model, the package adds text-line and layout detection, PDF input, and a browser editor that rebuilds each page as it looked (pictures, seals, columns, alignment and font sizes) with Word export, and ships as one Docker image.
 
 ## 2. Dataset
 
@@ -156,10 +156,10 @@ The decoder runs about 2.7× fewer passes; the end-to-end gain is smaller becaus
 - **More results.** [docs/RESULTS.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RESULTS.md) adds word error rate, exact match, the zero-shot vision-language models, a community Khmer fine-tune of DeepSeek-OCR and the decoder comparison.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/netra-ai-lab/Netra-OCR/master/assets/eval_1.png" width="1000" alt="A Khmer government notice photographed on a phone, and the text the app read from it" />
+  <img src="https://raw.githubusercontent.com/netra-ai-lab/Netra-OCR/master/assets/editor.png" width="1000" alt="The Netra OCR web app: a scanned Khmer press release with its detected blocks outlined on the left, and the editable page rebuilt from it on the right, with the emblem, header columns, titles, paragraphs, seal and footer in place" />
 </p>
 
-<p><em>Figure 4: A phone photo of a Khmer government notice (left) and the text the app read from it (right). Most lines read cleanly; the handwritten reference number comes back as noise, and two lines gain a stray “?”.</em></p>
+<p><em>Figure 4: A scanned Khmer press release in the web app (version 1.3.1, Docker image, CPU). On the left is the original, with the blocks the layout model found outlined. On the right is the editable page rebuilt from it: the emblem and the seal are cut out as pictures, and the two-column header, bold titles, centred and right-aligned lines, indented paragraphs, footer rule and contact columns keep their places. Every block can be edited, and <b>Download Word</b> exports the same layout.</em></p>
 
 ## 5. Quick start
 
