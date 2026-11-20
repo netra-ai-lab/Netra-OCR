@@ -7,10 +7,19 @@ language:
 - en
 library_name: onnx
 pipeline_tag: image-to-text
+datasets:
+- Netra-Lab/khmer-document-synthetic-low-res
+- Netra-Lab/khmer-scene-text-synthetic-contrast
+- SoyVitou/KhmerSynthetic1M
+- seanghay/khmer-hanuman-100k
+metrics:
+- cer
 tags:
 - ocr
 - khmer-ocr
+- text-recognition
 - document-layout
+- squeeze-and-excitation
 - onnx
 - netra-lab
 ---
@@ -23,11 +32,75 @@ tags:
 
 <p align="center">
   <a href="https://github.com/netra-ai-lab/Netra-OCR"><b>GitHub</b></a> |
-  <a href="https://pypi.org/project/netra-ocr/"><b>PyPI</b></a> |
-  <a href="https://huggingface.co/Netra-Lab/Netra-OCR/tree/main/pytorch"><b>PyTorch weights</b></a>
+  <a href="https://github.com/netra-ai-lab/Netra-OCR/pkgs/container/netra-ocr"><b>Docker Image</b></a> |
+  <a href="https://pypi.org/project/netra-ocr/"><b>PyPI</b></a>
 </p>
 
 # Netra OCR
+
+**Khmer and English scans, photos and PDFs in, editable documents out.** Netra-OCR is a **19M-parameter** text-line recognizer for Khmer and English, trained from scratch on 1.3M synthetic line images. A Squeeze-and-Excitation CNN and a Transformer encoder read each line in overlapping chunks, a bidirectional LSTM joins the chunks, and a Transformer decoder writes the text one Khmer character cluster at a time. It runs on the CPU.
+
+## Results
+
+Character error rate (%) on single text lines, lower is better. Netra-OCR uses beam search with width 3.
+
+| Model | Params | [KHOB](https://huggingface.co/datasets/Netra-Lab/khob-eval) | Legal Documents | [Printed Words](https://huggingface.co/datasets/Netra-Lab/khmer-printed-words) |
+|---|---:|---:|---:|---:|
+| Tesseract 5 (`khm`) | – | 5.12 | 41.78 | 20.14 |
+| Surya OCR | – | 14.52 | 51.16 | 28.45 |
+| Qwen2.5-VL-3B (LoRA on Khmer) | 3B | 89.21 | 84.63 | 98.62 |
+| DeepSeek-OCR (LoRA on Khmer) | 3B | 33.23 | 44.22 | 69.79 |
+| **Netra-OCR** | **19M** | **0.96** | **5.31** | **2.95** |
+
+- **Where it wins:** the lowest error on all three sets, including phone photos of legal documents (5.31% against 41.78% for Tesseract).
+- **Where it's weaker:** hard photos and short isolated words cost accuracy (5.31% and 2.95% against 0.96% on KHOB), and English can come back with small errors.
+
+The baselines' outputs are normalised the same way. The two vision-language models had a short LoRA fine-tune on 6,000 of our lines, since neither documents Khmer support. Legal Documents is not public, because the documents belong to real people.
+
+<p align="center"><img src="https://huggingface.co/Netra-Lab/Netra-OCR/resolve/main/assets/results.png" width="100%" alt="Character error rate of Tesseract, Surya OCR, Qwen2.5-VL, DeepSeek-OCR and Netra-OCR on KHOB, legal documents and printed words"></p>
+
+The full benchmark, with word error rate, exact match and the zero-shot vision-language models, is in [docs/RESULTS.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RESULTS.md).
+
+## Architecture
+
+<p align="center"><img src="https://huggingface.co/Netra-Lab/Netra-OCR/resolve/main/assets/ocr-architecture.png" width="100%" alt="Netra-OCR architecture: chunked text line, SE network, patch embedding, Transformer encoder, merger, BiLSTM, Transformer decoder"></p>
+
+*A text line is chunked, each chunk is encoded in parallel, and the vision tokens are merged into one sequence. A bidirectional LSTM smooths the chunk seams, and the Transformer decoder writes the text one character cluster at a time.*
+
+- **Chunking:** each line is resized to 48 px high and split into 48 × 100 px chunks that overlap by 16 px, so long lines are never squeezed.
+- **Encoder:** a Squeeze-and-Excitation CNN (5 VGG-style blocks, SE over height only in blocks 3–5), a patch module and a 2-layer Transformer encoder turn each chunk into 384-dimensional tokens.
+- **Across chunks:** the tokens of all chunks are concatenated, and a one-layer bidirectional LSTM carries context across each seam.
+- **Decoder:** a 2-layer Transformer decoder over a 2,101-token vocabulary. Khmer is written as character clusters (a consonant with its subscripts and vowels), which makes Khmer sequences about 43% shorter.
+
+### Blockwise parallel decoding
+
+<p align="center"><img src="https://huggingface.co/Netra-Lab/Netra-OCR/resolve/main/assets/blockwise_decoding.png" width="90%" alt="One step of blockwise parallel decoding: the head guesses 4 tokens, the decoder agrees with the first two and differs at the third, so the two matches plus the decoder's token are kept"></p>
+
+*One step of blockwise parallel decoding ([Stern et al., 2018](https://arxiv.org/abs/1811.03115)). A small proposal head guesses the next 4 tokens; the decoder checks all of them in one parallel pass, keeps the guesses it agrees with, and adds its own token where it first disagrees. Every kept token is one greedy decoding would also write, so the output is identical.*
+
+On KHOB (325 lines) in PyTorch:
+
+| Decoder | CER | ms per line | Tokens per step | Speed-up |
+|---|---:|---:|---:|---:|
+| Autoregressive | 1.17 | 17.60 | 1 | 1.00× |
+| **Blockwise, 4 proposed** | **1.17** | **11.35** | **2.7** | **1.55×** |
+
+The ONNX models in this repo cache the decoder's keys and values, which makes each pass cheap, so there both decoders run at about the same speed (see [Parity and speed](#parity-and-speed)).
+
+## Try the app
+
+The Docker image bundles every model in this repo with a browser editor. It rebuilds each page as it looked (pictures, seals, columns, alignment and font sizes), lets you correct any block, and exports Word, HTML, Markdown, JSON or plain text. Files never leave your machine.
+
+```bash
+docker run -d --name netra-ocr -p 8000:8000 -v netra-data:/data ghcr.io/netra-ai-lab/netra-ocr
+# then open http://localhost:8000
+```
+
+<p align="center"><img src="https://huggingface.co/Netra-Lab/Netra-OCR/resolve/main/assets/editor.png" width="100%" alt="The Netra OCR web app: a scanned Khmer press release with its detected blocks outlined on the left, and the editable page rebuilt from it on the right"></p>
+
+*A scanned Khmer press release (left, detected blocks outlined) and the editable page the app rebuilt from it (right), in version 1.3.1 on the CPU.*
+
+## Models in this repo
 
 The models behind the Netra OCR app, exported to ONNX. Each folder holds the ONNX graphs plus a `netra-model.json` config with the settings the app's pre- and post-processing need (line height and chunk width, decoder shape, class names, thresholds). The [`netra-ocr`](https://pypi.org/project/netra-ocr/) package runs them on ONNX Runtime on CPU and CUDA, and its [`web/`](https://github.com/netra-ai-lab/Netra-OCR/tree/master/web) folder runs the same files in the browser (WebGPU / WebAssembly), with no PyTorch.
 
@@ -109,6 +182,28 @@ See [training/README.md](https://github.com/netra-ai-lab/Netra-OCR/blob/master/t
 | `recognition*/vocab.json` | tokenizer vocabulary (class names of the detectors are in the config) |
 
 The Python reader is [`netra_ocr/inference/`](https://github.com/netra-ai-lab/Netra-OCR/tree/master/netra_ocr/inference); the exporters are in [`training/netra_ocr_train/scripts/`](https://github.com/netra-ai-lab/Netra-OCR/tree/master/training/netra_ocr_train/scripts).
+
+## Training data and test sets
+
+The recognizer was trained only on synthetic lines:
+- [Netra-Lab/khmer-document-synthetic-low-res](https://huggingface.co/datasets/Netra-Lab/khmer-document-synthetic-low-res): 100,000 document-style lines, made for this project;
+- [Netra-Lab/khmer-scene-text-synthetic-contrast](https://huggingface.co/datasets/Netra-Lab/khmer-scene-text-synthetic-contrast): 100,000 scene-text lines on real backgrounds, made for this project;
+- [SoyVitou/KhmerSynthetic1M](https://huggingface.co/datasets/SoyVitou/KhmerSynthetic1M): 1,000,000 lines;
+- [seanghay/khmer-hanuman-100k](https://huggingface.co/datasets/seanghay/khmer-hanuman-100k): 100,000 lines.
+
+It was tested on [Netra-Lab/khob-eval](https://huggingface.co/datasets/Netra-Lab/khob-eval) (325 real lines, cropped from the [Khmer OCR Benchmark](https://github.com/EKYCSolutions/khmer-ocr-benchmark-dataset) by EKYC Solutions) and [Netra-Lab/khmer-printed-words](https://huggingface.co/datasets/Netra-Lab/khmer-printed-words) (short words in 10 fonts).
+
+## Learn more
+
+| | |
+|---|---|
+| [README](https://github.com/netra-ai-lab/Netra-OCR#readme) | The project overview: quick start, install, usage and limitations |
+| [Usage](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/USAGE.md) | Every detector, decoder, output format and option, and the REST API |
+| [Architecture](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/ARCHITECTURE.md) | Chunking, the SE network, the BiLSTM, decoding and tokenisation |
+| [Results](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/RESULTS.md) | The full benchmark and the decoder comparison |
+| [Training](https://github.com/netra-ai-lab/Netra-OCR/blob/master/training/README.md) | Fine-tuning, training, evaluating and exporting the recognizer |
+| [Paper](https://github.com/netra-ai-lab/Netra-OCR/blob/master/docs/paper/A%20Squeeze-and-Excitation%20Transformer%20Network%20for%20Khmer%20Optical%20Character%20Recognition.pdf) | A Squeeze-and-Excitation Transformer Network for Khmer Optical Character Recognition |
+| [Issues](https://github.com/netra-ai-lab/Netra-OCR/issues) | Bug reports and questions |
 
 ## License and attribution
 
